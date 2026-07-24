@@ -81,9 +81,6 @@ pub fn run() {
             commands::wifi_disconnect,
             commands::wifi_enable,
             commands::get_device_ip,
-            commands::start_mcp_server,
-            commands::stop_mcp_server,
-            commands::get_mcp_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -91,14 +88,10 @@ pub fn run() {
             if let RunEvent::ExitRequested { .. } = &event {
                 let state = app.state::<AppState>();
                 let session = state.session.clone();
-                let mcp = state.mcp.clone();
                 tauri::async_runtime::block_on(async {
                     if let Some(s) = session.lock().await.take() {
                         s.shutdown.notify_one();
                         another_core::scrcpy::stop_server(&s.device_serial, 27183).await;
-                    }
-                    if let Some(ct) = mcp.lock().await.cancel.take() {
-                        ct.cancel();
                     }
                     another_core::adb::kill_server().await;
                 });

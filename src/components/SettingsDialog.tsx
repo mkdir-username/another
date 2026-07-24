@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   ChevronDownIcon,
-  ClipboardDocumentIcon,
   FolderOpenIcon,
 } from "@heroicons/react/24/outline";
 import {
@@ -32,20 +30,7 @@ import { cn } from "@/lib/utils";
 import type { Settings, QuickActionId } from "../types";
 import { PRESETS, RESOLUTION_OPTIONS, CODEC_OPTIONS, QUICK_ACTIONS } from "../types";
 
-const DEFAULT_MCP_PORT = 7070;
 const APP_VERSION = "0.3.0";
-
-function getMcpUrl(port: number) {
-  return `http://localhost:${port}/mcp`;
-}
-
-function getMcpConfig(port: number) {
-  return JSON.stringify({
-    mcpServers: {
-      another: { type: "http", url: getMcpUrl(port) },
-    },
-  }, null, 2);
-}
 
 interface SettingsDialogProps {
   open: boolean;
@@ -56,10 +41,6 @@ interface SettingsDialogProps {
   onApplyPreset: (name: string) => void;
   onUpdateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   onPinnedActionsChange: (actions: QuickActionId[]) => void;
-}
-
-function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text);
 }
 
 function SectionHeader({ children, open }: { children: React.ReactNode; open?: boolean }) {
@@ -81,64 +62,11 @@ export function SettingsDialog({
   onUpdateSetting,
   onPinnedActionsChange,
 }: SettingsDialogProps) {
-  const [mcpInstructionsOpen, setMcpInstructionsOpen] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState(false);
-  const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
-
   const [videoOpen, setVideoOpen] = useState(true);
   const [audioOpen, setAudioOpen] = useState(true);
   const [storageOpen, setStorageOpen] = useState(true);
-  const [mcpOpen, setMcpOpen] = useState(true);
   const [savePath, setSavePath] = useState(() => localStorage.getItem("save_path") || "");
   const [toolbarOpen, setToolbarOpen] = useState(true);
-
-  const [mcpEnabled, setMcpEnabled] = useState(() => {
-    const stored = localStorage.getItem("mcp_enabled");
-    return stored === null ? true : stored === "true";
-  });
-  const [mcpPort] = useState(() => {
-    const stored = localStorage.getItem("mcp_port");
-    return stored ? parseInt(stored, 10) : DEFAULT_MCP_PORT;
-  });
-  const [mcpRunning, setMcpRunning] = useState(false);
-
-  const checkMcpStatus = useCallback(async () => {
-    try {
-      const running = await invoke<boolean>("get_mcp_status");
-      setMcpRunning(running);
-    } catch { }
-  }, []);
-
-  useEffect(() => {
-    checkMcpStatus();
-  }, [checkMcpStatus]);
-
-  async function handleMcpToggle(enabled: boolean) {
-    setMcpEnabled(enabled);
-    localStorage.setItem("mcp_enabled", String(enabled));
-    try {
-      if (enabled) {
-        await invoke("start_mcp_server", { port: mcpPort });
-      } else {
-        await invoke("stop_mcp_server");
-      }
-      await checkMcpStatus();
-    } catch { }
-  }
-
-  function handleCopyUrl() {
-    copyToClipboard(getMcpUrl(mcpPort));
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
-  }
-
-  function handleCopySnippet(key: string, text: string) {
-    copyToClipboard(text);
-    setCopiedSnippet(key);
-    setTimeout(() => setCopiedSnippet(null), 2000);
-  }
-
-  const mcpConfig = getMcpConfig(mcpPort);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -327,54 +255,6 @@ export function SettingsDialog({
                     );
                   })}
                 </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-
-          <Collapsible open={mcpOpen} onOpenChange={setMcpOpen}>
-            <SectionHeader open={mcpOpen}>MCP Server</SectionHeader>
-            <CollapsibleContent>
-              <div className="px-5 py-4 border-b border-border/60">
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-medium text-foreground">Enabled</span>
-                  <Switch
-                    checked={mcpEnabled}
-                    onCheckedChange={handleMcpToggle}
-                  />
-                </div>
-                {mcpRunning && (
-                  <div className="text-[13px] font-medium text-foreground mt-1.5">Running on port {mcpPort}</div>
-                )}
-                {mcpEnabled && (
-                  <div className="mt-3.5">
-                    <p className="text-[11px] text-text-3 mb-3">Let AI agents control your Android device</p>
-                    <div className="flex items-center gap-2 mb-3">
-                      <code className="flex-1 py-2 px-2.5 bg-surface-2 border border-border rounded-md text-xs font-mono text-foreground select-text">{getMcpUrl(mcpPort)}</code>
-                      <Button variant="outline" size="xs" className="shrink-0 [&_svg]:size-[13px]" onClick={handleCopyUrl}>
-                        <ClipboardDocumentIcon />
-                        {copiedUrl ? "Copied" : "Copy URL"}
-                      </Button>
-                    </div>
-                    <Button variant="ghost" className="flex items-center justify-between w-full h-auto p-0 mt-1 mb-1 text-foreground" onClick={() => setMcpInstructionsOpen(!mcpInstructionsOpen)}>
-                      <span className="text-[13px] font-medium">Setup Instructions</span>
-                      <ChevronDownIcon className={cn("size-3.5 text-text-3 transition-transform duration-150", mcpInstructionsOpen && "rotate-180")} />
-                    </Button>
-                    {mcpInstructionsOpen && (
-                      <div className="flex flex-col gap-2.5 mt-2.5">
-                        <div className="border border-border rounded-lg overflow-hidden">
-                          <div className="flex items-center justify-between py-1.5 px-2.5 bg-surface-2 border-b border-border">
-                            <span className="text-[11px] font-semibold text-text-2">Claude Code, Claude Desktop, Cursor, etc.</span>
-                            <Button variant="outline" size="xs" className="shrink-0 text-[10px] [&_svg]:size-[11px]" onClick={() => handleCopySnippet("config", mcpConfig)}>
-                              <ClipboardDocumentIcon />
-                              {copiedSnippet === "config" ? "Copied" : "Copy"}
-                            </Button>
-                          </div>
-                          <pre className="p-2.5 m-0 text-[11px] font-mono text-foreground bg-surface overflow-x-auto leading-relaxed select-text">{mcpConfig}</pre>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </CollapsibleContent>
           </Collapsible>

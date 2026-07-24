@@ -209,11 +209,6 @@ function App() {
   commandsRef.current = commands;
 
   useEffect(() => {
-    const mcpEnabled = localStorage.getItem("mcp_enabled") !== "false";
-    if (mcpEnabled) {
-      const port = parseInt(localStorage.getItem("mcp_port") || "7070", 10);
-      invoke("start_mcp_server", { port }).catch(() => { });
-    }
     updater.checkForUpdates(true);
   }, []);
 
