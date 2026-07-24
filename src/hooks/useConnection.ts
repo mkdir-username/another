@@ -3,7 +3,11 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import type { Device, Settings, FrameEvent, Screen, MacroEvent, WebKitGestureEvent } from "../types";
-import { wheelToFingerDelta, advanceDrag, pinchPointers, clamp01, GESTURE_END_MS } from "../lib/gestures";
+import {
+  wheelToFingerDelta, advanceDrag, pinchPointers, clamp01,
+  edgeSideAt, isEdgeBack, GESTURE_END_MS, EDGE_DRAG_ESCAPE, type EdgeSide,
+} from "../lib/gestures";
+import type { GestureSettings } from "./useGestureSettings";
 
 const POINTER_A = 0;
 const POINTER_B = 1;
@@ -19,6 +23,7 @@ function b64ToBytes(b64: string): Uint8Array {
 
 interface UseConnectionOptions {
   settings: Settings;
+  gestureSettings: GestureSettings;
   showToast: (msg: string, type?: "error" | "info") => void;
   takeScreenshot: () => void;
   setShowSettings: (fn: (s: boolean) => boolean) => void;
@@ -43,9 +48,14 @@ export function useConnection(opts: UseConnectionOptions) {
   const rafId = useRef<number>(0);
   const isMouseDownRef = useRef(false);
   const naturalScrollRef = useRef(true);
+  const gestureSettingsRef = useRef(opts.gestureSettings);
+  gestureSettingsRef.current = opts.gestureSettings;
   const drag = useRef({
     active: false, ready: false, inFlight: false, pendingUp: false,
     x: 0.5, y: 0.5, dx: 0, dy: 0, endTimer: 0,
+    side: null as EdgeSide,
+    mode: "drag" as "drag" | "undecided" | "consumed",
+    probeDx: 0, probeDy: 0,
   });
   const pinch = useRef({
     active: false, ready: false, inFlight: false, dirty: false,
@@ -344,6 +354,14 @@ export function useConnection(opts: UseConnectionOptions) {
     }
   }, []);
 
+  const startDragDown = useCallback((x: number, y: number) => {
+    const g = drag.current;
+    opts.onRecordEvent?.({ type: "touch", action: "down", x, y });
+    invoke("send_touch", { action: "down", x, y })
+      .catch(() => { })
+      .finally(() => { g.ready = true; pumpDrag(); });
+  }, [pumpDrag]);
+
   const endDrag = useCallback(() => {
     const g = drag.current;
     if (!g.active) return;
@@ -351,6 +369,13 @@ export function useConnection(opts: UseConnectionOptions) {
     if (g.endTimer) {
       clearTimeout(g.endTimer);
       g.endTimer = 0;
+    }
+    if (g.mode !== "drag") {
+      g.mode = "drag";
+      g.side = null;
+      g.probeDx = 0;
+      g.probeDy = 0;
+      return;
     }
     g.pendingUp = true;
     pumpDrag();
@@ -363,33 +388,71 @@ export function useConnection(opts: UseConnectionOptions) {
     const rect = canvas.getBoundingClientRect();
     const g = drag.current;
 
+    const tuning = gestureSettingsRef.current;
+
     if (!g.active) {
+      const x = clamp01((e.clientX - rect.left) / rect.width);
+      const y = clamp01((e.clientY - rect.top) / rect.height);
       g.active = true;
       g.ready = false;
       g.pendingUp = false;
       g.inFlight = false;
-      g.x = clamp01((e.clientX - rect.left) / rect.width);
-      g.y = clamp01((e.clientY - rect.top) / rect.height);
+      g.x = x;
+      g.y = y;
       g.dx = 0;
       g.dy = 0;
-      opts.onRecordEvent?.({ type: "touch", action: "down", x: g.x, y: g.y });
-      invoke("send_touch", { action: "down", x: g.x, y: g.y })
-        .catch(() => { })
-        .finally(() => { g.ready = true; pumpDrag(); });
+      g.probeDx = 0;
+      g.probeDy = 0;
+      g.side = tuning.edgeBack ? edgeSideAt(x) : null;
+      g.mode = g.side ? "undecided" : "drag";
+      if (g.mode === "drag") startDragDown(x, y);
+    }
+
+    const restartEndTimer = () => {
+      if (g.endTimer) clearTimeout(g.endTimer);
+      g.endTimer = window.setTimeout(endDrag, GESTURE_END_MS);
+    };
+
+    if (g.mode === "consumed") {
+      restartEndTimer();
+      return;
     }
 
     const d = wheelToFingerDelta(e, rect, {
       natural: naturalScrollRef.current,
-      invert: false,
-      gain: 1,
+      invert: tuning.invertScroll,
+      gain: tuning.swipeGain,
     });
+
+    // A gesture born at the edge touches nothing until it is clear whether it means "back" or a scroll along the edge.
+    if (g.mode === "undecided") {
+      g.probeDx += d.dx;
+      g.probeDy += d.dy;
+
+      if (isEdgeBack(g.side, g.probeDx, g.probeDy)) {
+        g.mode = "consumed";
+        opts.onRecordEvent?.({ type: "button", button: "back" });
+        void invoke("press_button", { button: "back" }).catch(() => { });
+        restartEndTimer();
+        return;
+      }
+
+      if (Math.abs(g.probeDy) < EDGE_DRAG_ESCAPE) {
+        restartEndTimer();
+        return;
+      }
+
+      g.mode = "drag";
+      startDragDown(g.x, g.y);
+      g.dx += g.probeDx;
+      g.dy += g.probeDy;
+    }
+
     g.dx += d.dx;
     g.dy += d.dy;
     pumpDrag();
-
-    if (g.endTimer) clearTimeout(g.endTimer);
-    g.endTimer = window.setTimeout(endDrag, GESTURE_END_MS);
-  }, [connectedDevice, pumpDrag, endDrag]);
+    restartEndTimer();
+  }, [connectedDevice, pumpDrag, endDrag, startDragDown]);
 
   /** Same backpressure as the drag, but intermediate scales are dropped — only the latest matters. */
   const pumpPinch = useCallback(() => {

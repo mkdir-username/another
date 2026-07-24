@@ -7,6 +7,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useToasts } from "./hooks/useToasts";
 import { useDevices } from "./hooks/useDevices";
 import { useConnection } from "./hooks/useConnection";
+import { useGestureSettings } from "./hooks/useGestureSettings";
 import { useAdaptiveBitrate } from "./hooks/useAdaptiveBitrate";
 import { useMacro } from "./hooks/useMacro";
 import { useUpdater } from "./hooks/useUpdater";
@@ -45,6 +46,7 @@ function App() {
   const [activePreset, setActivePreset] = useState(() => {
     return localStorage.getItem("active_preset") || "balanced";
   });
+  const { gestureSettings } = useGestureSettings();
 
   const [pinnedActions, setPinnedActions] = useState<QuickActionId[]>(() => {
     localStorage.removeItem("pinned_actions");
@@ -126,6 +128,7 @@ function App() {
     handleCompositionEnd,
   } = useConnection({
     settings,
+    gestureSettings,
     showToast,
     takeScreenshot,
     setShowSettings: (fn) => setShowSettings(fn),
