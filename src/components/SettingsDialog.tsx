@@ -29,6 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { Settings, QuickActionId } from "../types";
 import { PRESETS, RESOLUTION_OPTIONS, CODEC_OPTIONS, QUICK_ACTIONS } from "../types";
+import type { GestureSettings } from "../hooks/useGestureSettings";
 
 const APP_VERSION = "0.3.0";
 
@@ -41,6 +42,8 @@ interface SettingsDialogProps {
   onApplyPreset: (name: string) => void;
   onUpdateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   onPinnedActionsChange: (actions: QuickActionId[]) => void;
+  gestureSettings: GestureSettings;
+  onUpdateGestureSetting: <K extends keyof GestureSettings>(key: K, value: GestureSettings[K]) => void;
 }
 
 function SectionHeader({ children, open }: { children: React.ReactNode; open?: boolean }) {
@@ -61,8 +64,11 @@ export function SettingsDialog({
   onApplyPreset,
   onUpdateSetting,
   onPinnedActionsChange,
+  gestureSettings,
+  onUpdateGestureSetting,
 }: SettingsDialogProps) {
   const [videoOpen, setVideoOpen] = useState(true);
+  const [gesturesOpen, setGesturesOpen] = useState(true);
   const [audioOpen, setAudioOpen] = useState(true);
   const [storageOpen, setStorageOpen] = useState(true);
   const [savePath, setSavePath] = useState(() => localStorage.getItem("save_path") || "");
@@ -164,6 +170,41 @@ export function SettingsDialog({
                   />
                 </div>
                 <div className="text-[11px] text-text-3 mt-1">Automatically adjusts quality based on network conditions</div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          <Collapsible open={gesturesOpen} onOpenChange={setGesturesOpen}>
+            <SectionHeader open={gesturesOpen}>Gestures</SectionHeader>
+            <CollapsibleContent>
+              <div className="px-5 py-4 border-b border-border/60">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[13px] font-medium text-foreground">Swipe strength</span>
+                  <span className="text-xs font-medium font-mono text-text-2 min-w-[50px] text-right">×{gestureSettings.swipeGain.toFixed(1)}</span>
+                </div>
+                <Slider
+                  className="mb-4"
+                  value={gestureSettings.swipeGain}
+                  onValueChange={(val) => onUpdateGestureSetting("swipeGain", val as number)}
+                  min={1} max={5} step={0.5}
+                />
+
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[13px] font-medium text-foreground">Invert scroll direction</span>
+                  <Switch
+                    checked={gestureSettings.invertScroll}
+                    onCheckedChange={(checked) => onUpdateGestureSetting("invertScroll", checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-medium text-foreground">Edge swipe goes back</span>
+                  <Switch
+                    checked={gestureSettings.edgeBack}
+                    onCheckedChange={(checked) => onUpdateGestureSetting("edgeBack", checked)}
+                  />
+                </div>
+                <div className="text-[11px] text-text-3 mt-2">Swipe inward from the left or right edge to go back</div>
               </div>
             </CollapsibleContent>
           </Collapsible>

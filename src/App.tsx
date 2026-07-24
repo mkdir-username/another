@@ -46,7 +46,7 @@ function App() {
   const [activePreset, setActivePreset] = useState(() => {
     return localStorage.getItem("active_preset") || "balanced";
   });
-  const { gestureSettings } = useGestureSettings();
+  const { gestureSettings, updateGestureSetting } = useGestureSettings();
 
   const [pinnedActions, setPinnedActions] = useState<QuickActionId[]>(() => {
     localStorage.removeItem("pinned_actions");
@@ -305,6 +305,8 @@ function App() {
         onApplyPreset={applyPreset}
         onUpdateSetting={updateSetting}
         onPinnedActionsChange={setPinnedActions}
+        gestureSettings={gestureSettings}
+        onUpdateGestureSetting={updateGestureSetting}
       />
       <CommandBar
         open={showCommandBar}
