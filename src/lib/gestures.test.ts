@@ -32,7 +32,19 @@ describe("wheelToFingerDelta", () => {
 
   it("горизонталь нормализуется по ширине, а не по высоте", () => {
     const d = wheelToFingerDelta({ deltaX: 40, deltaY: 0, deltaMode: 0 }, rect, base);
+    expect(d.dx).toBeCloseTo(0.1);
+  });
+
+  it("оси идут в противоположных знаках — так требует macOS", () => {
+    const d = wheelToFingerDelta({ deltaX: 40, deltaY: 80, deltaMode: 0 }, rect, base);
+    expect(Math.sign(d.dx)).toBe(1);
+    expect(Math.sign(d.dy)).toBe(-1);
+  });
+
+  it("инверсия переворачивает обе оси разом", () => {
+    const d = wheelToFingerDelta({ deltaX: 40, deltaY: 80, deltaMode: 0 }, rect, { ...base, invert: true });
     expect(d.dx).toBeCloseTo(-0.1);
+    expect(d.dy).toBeCloseTo(0.1);
   });
 
   it("построчный режим переводится в пиксели", () => {
