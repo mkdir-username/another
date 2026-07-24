@@ -44,6 +44,26 @@ export function wheelToFingerDelta(e: WheelLike, rect: Size, tuning: WheelTuning
   };
 }
 
+export const EDGE_ZONE = 0.08;
+export const EDGE_BACK_TRAVEL = 0.12;
+export const EDGE_DRAG_ESCAPE = 0.06;
+
+export type EdgeSide = "left" | "right" | null;
+
+export function edgeSideAt(x: number, zone = EDGE_ZONE): EdgeSide {
+  if (x <= zone) return "left";
+  if (x >= 1 - zone) return "right";
+  return null;
+}
+
+/** Inward horizontal travel from a screen edge — the intent behind Android's back gesture. */
+export function isEdgeBack(side: EdgeSide, dx: number, dy: number, travel = EDGE_BACK_TRAVEL): boolean {
+  if (!side) return false;
+  if (Math.abs(dx) < travel) return false;
+  if (Math.abs(dx) <= Math.abs(dy)) return false;
+  return side === "left" ? dx > 0 : dx < 0;
+}
+
 export function advanceDrag(from: Point, delta: Delta): Point {
   return { x: clamp01(from.x + delta.dx), y: clamp01(from.y + delta.dy) };
 }

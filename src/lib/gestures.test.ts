@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wheelToFingerDelta, advanceDrag, clamp01, pinchPointers, PINCH_BASE_SPAN } from "./gestures";
+import { wheelToFingerDelta, advanceDrag, clamp01, pinchPointers, PINCH_BASE_SPAN, edgeSideAt, isEdgeBack, EDGE_ZONE } from "./gestures";
 
 const rect = { width: 400, height: 800 };
 const base = { natural: false, invert: false, gain: 1 };
@@ -43,6 +43,44 @@ describe("wheelToFingerDelta", () => {
   it("постраничный режим меряется высотой окна", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, rect, base);
     expect(d.dy).toBeCloseTo(-1);
+  });
+});
+
+describe("edgeSideAt", () => {
+  it("узнаёт левую и правую кромку", () => {
+    expect(edgeSideAt(0.02)).toBe("left");
+    expect(edgeSideAt(0.98)).toBe("right");
+  });
+
+  it("середина экрана краем не считается", () => {
+    expect(edgeSideAt(0.5)).toBeNull();
+    expect(edgeSideAt(EDGE_ZONE + 0.01)).toBeNull();
+  });
+});
+
+describe("isEdgeBack", () => {
+  it("свайп вправо от левой кромки — это назад", () => {
+    expect(isEdgeBack("left", 0.2, 0.01)).toBe(true);
+  });
+
+  it("свайп влево от правой кромки — это назад", () => {
+    expect(isEdgeBack("right", -0.2, 0.01)).toBe(true);
+  });
+
+  it("свайп в сторону кромки не считается", () => {
+    expect(isEdgeBack("left", -0.2, 0.01)).toBe(false);
+  });
+
+  it("вертикальный свайп у кромки остаётся скроллом", () => {
+    expect(isEdgeBack("left", 0.2, 0.5)).toBe(false);
+  });
+
+  it("слишком короткое движение не срабатывает", () => {
+    expect(isEdgeBack("left", 0.02, 0)).toBe(false);
+  });
+
+  it("вне кромки не срабатывает никогда", () => {
+    expect(isEdgeBack(null, 0.9, 0)).toBe(false);
   });
 });
 
