@@ -8,6 +8,7 @@ import {
   edgeSideAt, isEdgeBack, GESTURE_END_MS, EDGE_DRAG_ESCAPE, type EdgeSide,
 } from "../lib/gestures";
 import type { GestureSettings } from "./useGestureSettings";
+import { resolveKey, needsClipboard, ANDROID } from "../lib/keymap";
 
 const POINTER_A = 0;
 const POINTER_B = 1;
@@ -514,37 +515,48 @@ export function useConnection(opts: UseConnectionOptions) {
 
   const composingRef = useRef(false);
 
+  const sendText = useCallback(async (text: string) => {
+    opts.onRecordEvent?.({ type: "text", text });
+    try { await invoke(needsClipboard(text) ? "paste_text" : "send_text", { text }); } catch { }
+  }, []);
+
   const handleCompositionStart = () => { composingRef.current = true; };
   const handleCompositionEnd = async (e: React.CompositionEvent) => {
     composingRef.current = false;
     if (!connectedDevice || !e.data) return;
-    opts.onRecordEvent?.({ type: "text", text: e.data });
-    try { await invoke("send_text", { text: e.data }); } catch { }
+    await sendText(e.data);
   };
 
-  const handleKeyDown = async (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: KeyboardEvent) => {
     if (!connectedDevice) return;
     if (composingRef.current || e.key === "Dead") return;
-    e.preventDefault();
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      opts.onRecordEvent?.({ type: "text", text: e.key });
-      try { await invoke("send_text", { text: e.key }); } catch { }
-    } else {
-      const keyMap: Record<string, number> = {
-        Enter: 66, Backspace: 67, Delete: 112,
-        ArrowUp: 19, ArrowDown: 20, ArrowLeft: 21, ArrowRight: 22,
-        Escape: 111, Tab: 61,
-      };
-      const keycode = keyMap[e.key];
-      if (keycode) {
-        opts.onRecordEvent?.({ type: "key", keycode, action: "down" });
+
+    const strokes = resolveKey(e);
+    if (strokes) {
+      e.preventDefault();
+      for (const s of strokes) {
+        opts.onRecordEvent?.({ type: "key", keycode: s.keycode, action: "down" });
         try {
-          await invoke("send_key", { keycode, action: "down" });
-          await invoke("send_key", { keycode, action: "up" });
+          await invoke("send_key", { keycode: s.keycode, action: "down", metaState: s.meta });
+          await invoke("send_key", { keycode: s.keycode, action: "up", metaState: s.meta });
         } catch { }
       }
+      return;
+    }
+
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      await sendText(e.key);
     }
   };
+
+  const switchLanguage = useCallback(async () => {
+    if (!connectedDevice) return;
+    try {
+      await invoke("send_key", { keycode: ANDROID.SPACE, action: "down", metaState: ANDROID.META_CTRL });
+      await invoke("send_key", { keycode: ANDROID.SPACE, action: "up", metaState: ANDROID.META_CTRL });
+    } catch { }
+  }, [connectedDevice]);
 
   useEffect(() => {
     if (screen !== "another") return;
@@ -639,5 +651,6 @@ export function useConnection(opts: UseConnectionOptions) {
     handleKeyDown,
     handleCompositionStart,
     handleCompositionEnd,
+    switchLanguage,
   };
 }

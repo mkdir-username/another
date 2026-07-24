@@ -61,7 +61,7 @@ interface MirrorScreenProps {
   onPinchStart: (e: WebKitGestureEvent) => void;
   onPinchChange: (e: WebKitGestureEvent) => void;
   onPinchEnd: (e: WebKitGestureEvent) => void;
-  onKeyDown: (e: React.KeyboardEvent) => void;
+  onKeyDown: (e: KeyboardEvent) => void;
   onCompositionStart: () => void;
   onCompositionEnd: (e: React.CompositionEvent) => void;
 }
@@ -125,6 +125,18 @@ export function MirrorScreen({
       canvas.removeEventListener("gestureend", gEnd);
     };
   }, [canvasRef, connecting, onWheel, onPinchStart, onPinchChange, onPinchEnd]);
+
+  // Listening on the window rather than the viewport div: without a click there is no focus there, so Esc never arrives.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      onKeyDown(e);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onKeyDown]);
 
   const quickActionHandlers: Record<QuickActionId, () => void> = {
     record: onToggleRecording,
@@ -230,7 +242,7 @@ export function MirrorScreen({
       </div>
 
       {/* Canvas viewport */}
-      <div className="flex-1 flex items-center justify-center overflow-hidden outline-none relative" tabIndex={0} onKeyDown={onKeyDown} onCompositionStart={onCompositionStart} onCompositionEnd={onCompositionEnd}>
+      <div className="flex-1 flex items-center justify-center overflow-hidden outline-none relative" tabIndex={0} onCompositionStart={onCompositionStart} onCompositionEnd={onCompositionEnd}>
         {connecting ? (
           <div className="flex flex-col items-center gap-4 text-text-3">
             <div className="size-6 border-2 border-border border-t-brand rounded-full animate-spin" />
