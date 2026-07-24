@@ -42,3 +42,14 @@ export function wheelToFingerDelta(e: WheelLike, rect: Size, naturalScroll: bool
 export function advanceDrag(from: Point, delta: Delta): Point {
   return { x: clamp01(from.x + delta.dx), y: clamp01(from.y + delta.dy) };
 }
+
+export const PINCH_BASE_SPAN = 0.18;
+
+/** Two vertically separated fingers around the pinch centre; scale comes from the WebKit gesture event. */
+export function pinchPointers(center: Point, scale: number): { a: Point; b: Point } {
+  const half = (PINCH_BASE_SPAN * Math.max(scale, 0.1)) / 2;
+  return {
+    a: { x: clamp01(center.x), y: clamp01(center.y - half) },
+    b: { x: clamp01(center.x), y: clamp01(center.y + half) },
+  };
+}
