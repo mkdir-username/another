@@ -43,9 +43,14 @@ export function useConnection(opts: UseConnectionOptions) {
   const rafId = useRef<number>(0);
   const isMouseDownRef = useRef(false);
   const naturalScrollRef = useRef(true);
-  const touchChain = useRef<Promise<unknown>>(Promise.resolve());
-  const drag = useRef({ active: false, x: 0.5, y: 0.5, dx: 0, dy: 0, frame: 0, endTimer: 0 });
-  const pinch = useRef({ active: false, cx: 0.5, cy: 0.5 });
+  const drag = useRef({
+    active: false, ready: false, inFlight: false, pendingUp: false,
+    x: 0.5, y: 0.5, dx: 0, dy: 0, endTimer: 0,
+  });
+  const pinch = useRef({
+    active: false, ready: false, inFlight: false, dirty: false,
+    cx: 0.5, cy: 0.5, scale: 1,
+  });
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isReconnecting = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -305,25 +310,39 @@ export function useConnection(opts: UseConnectionOptions) {
       .catch(() => { });
   }, []);
 
-  const sendTouch = useCallback((action: string, x: number, y: number, pointerId?: number) => {
-    touchChain.current = touchChain.current.then(() =>
-      invoke("send_touch", { action, x, y, pointerId }).catch(() => { })
-    );
-    return touchChain.current;
-  }, []);
-
-  const flushDrag = useCallback(() => {
+  /**
+   * One touch in flight at a time: accumulated delta collapses into a single move once the
+   * previous one lands. Queuing every frame instead would outrun the transport on a 120Hz
+   * display and the backlog would grow for the whole gesture.
+   */
+  const pumpDrag = useCallback(() => {
     const g = drag.current;
-    g.frame = 0;
-    if (!g.active || (g.dx === 0 && g.dy === 0)) return;
-    const next = advanceDrag({ x: g.x, y: g.y }, { dx: g.dx, dy: g.dy });
-    g.x = next.x;
-    g.y = next.y;
-    g.dx = 0;
-    g.dy = 0;
-    opts.onRecordEvent?.({ type: "touch", action: "move", x: g.x, y: g.y });
-    void sendTouch("move", g.x, g.y);
-  }, [sendTouch]);
+    if (!g.ready || g.inFlight) return;
+
+    if (g.dx !== 0 || g.dy !== 0) {
+      const next = advanceDrag({ x: g.x, y: g.y }, { dx: g.dx, dy: g.dy });
+      g.x = next.x;
+      g.y = next.y;
+      g.dx = 0;
+      g.dy = 0;
+      g.inFlight = true;
+      opts.onRecordEvent?.({ type: "touch", action: "move", x: g.x, y: g.y });
+      invoke("send_touch", { action: "move", x: g.x, y: g.y })
+        .catch(() => { })
+        .finally(() => { g.inFlight = false; pumpDrag(); });
+      return;
+    }
+
+    if (g.pendingUp) {
+      g.pendingUp = false;
+      g.ready = false;
+      g.inFlight = true;
+      opts.onRecordEvent?.({ type: "touch", action: "up", x: g.x, y: g.y });
+      invoke("send_touch", { action: "up", x: g.x, y: g.y })
+        .catch(() => { })
+        .finally(() => { g.inFlight = false; });
+    }
+  }, []);
 
   const endDrag = useCallback(() => {
     const g = drag.current;
@@ -333,9 +352,9 @@ export function useConnection(opts: UseConnectionOptions) {
       clearTimeout(g.endTimer);
       g.endTimer = 0;
     }
-    opts.onRecordEvent?.({ type: "touch", action: "up", x: g.x, y: g.y });
-    void sendTouch("up", g.x, g.y);
-  }, [sendTouch]);
+    g.pendingUp = true;
+    pumpDrag();
+  }, [pumpDrag]);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     if (!connectedDevice || isMouseDownRef.current || pinch.current.active) return;
@@ -346,22 +365,42 @@ export function useConnection(opts: UseConnectionOptions) {
 
     if (!g.active) {
       g.active = true;
+      g.ready = false;
+      g.pendingUp = false;
+      g.inFlight = false;
       g.x = clamp01((e.clientX - rect.left) / rect.width);
       g.y = clamp01((e.clientY - rect.top) / rect.height);
       g.dx = 0;
       g.dy = 0;
       opts.onRecordEvent?.({ type: "touch", action: "down", x: g.x, y: g.y });
-      void sendTouch("down", g.x, g.y);
+      invoke("send_touch", { action: "down", x: g.x, y: g.y })
+        .catch(() => { })
+        .finally(() => { g.ready = true; pumpDrag(); });
     }
 
     const d = wheelToFingerDelta(e, rect, naturalScrollRef.current);
     g.dx += d.dx;
     g.dy += d.dy;
+    pumpDrag();
 
-    if (!g.frame) g.frame = requestAnimationFrame(flushDrag);
     if (g.endTimer) clearTimeout(g.endTimer);
     g.endTimer = window.setTimeout(endDrag, GESTURE_END_MS);
-  }, [connectedDevice, sendTouch, flushDrag, endDrag]);
+  }, [connectedDevice, pumpDrag, endDrag]);
+
+  /** Same backpressure as the drag, but intermediate scales are dropped — only the latest matters. */
+  const pumpPinch = useCallback(() => {
+    const p = pinch.current;
+    if (!p.ready || p.inFlight || !p.dirty) return;
+    p.dirty = false;
+    p.inFlight = true;
+    const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, p.scale);
+    Promise.all([
+      invoke("send_touch", { action: "move", x: a.x, y: a.y, pointerId: POINTER_A }),
+      invoke("send_touch", { action: "move", x: b.x, y: b.y, pointerId: POINTER_B }),
+    ])
+      .catch(() => { })
+      .finally(() => { p.inFlight = false; pumpPinch(); });
+  }, []);
 
   const handlePinchStart = useCallback((e: WebKitGestureEvent) => {
     if (!connectedDevice || isMouseDownRef.current) return;
@@ -371,29 +410,40 @@ export function useConnection(opts: UseConnectionOptions) {
     const rect = canvas.getBoundingClientRect();
     const p = pinch.current;
     p.active = true;
+    p.ready = false;
+    p.dirty = false;
+    p.inFlight = false;
+    p.scale = 1;
     p.cx = clamp01((e.clientX - rect.left) / rect.width);
     p.cy = clamp01((e.clientY - rect.top) / rect.height);
     const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, 1);
-    void sendTouch("down", a.x, a.y, POINTER_A);
-    void sendTouch("down", b.x, b.y, POINTER_B);
-  }, [connectedDevice, sendTouch, endDrag]);
+    Promise.all([
+      invoke("send_touch", { action: "down", x: a.x, y: a.y, pointerId: POINTER_A }),
+      invoke("send_touch", { action: "down", x: b.x, y: b.y, pointerId: POINTER_B }),
+    ])
+      .catch(() => { })
+      .finally(() => { p.ready = true; pumpPinch(); });
+  }, [connectedDevice, endDrag, pumpPinch]);
 
   const handlePinchChange = useCallback((e: WebKitGestureEvent) => {
     const p = pinch.current;
     if (!p.active) return;
-    const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, e.scale);
-    void sendTouch("move", a.x, a.y, POINTER_A);
-    void sendTouch("move", b.x, b.y, POINTER_B);
-  }, [sendTouch]);
+    p.scale = e.scale;
+    p.dirty = true;
+    pumpPinch();
+  }, [pumpPinch]);
 
   const handlePinchEnd = useCallback((e: WebKitGestureEvent) => {
     const p = pinch.current;
     if (!p.active) return;
     p.active = false;
+    p.dirty = false;
     const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, e.scale);
-    void sendTouch("up", a.x, a.y, POINTER_A);
-    void sendTouch("up", b.x, b.y, POINTER_B);
-  }, [sendTouch]);
+    void Promise.all([
+      invoke("send_touch", { action: "up", x: a.x, y: a.y, pointerId: POINTER_A }),
+      invoke("send_touch", { action: "up", x: b.x, y: b.y, pointerId: POINTER_B }),
+    ]).catch(() => { });
+  }, []);
 
   const composingRef = useRef(false);
 
