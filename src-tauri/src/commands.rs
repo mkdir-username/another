@@ -174,13 +174,20 @@ pub async fn send_touch(
 pub async fn send_key(
     keycode: u32,
     action: String,
+    meta_state: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let session = state.session.lock().await;
     let session = session.as_ref().ok_or("Not connected")?;
-    control::inject_keycode(&session.control_socket, &action, keycode, 0, 0)
-        .await
-        .map_err(|e| e.to_string())
+    control::inject_keycode(
+        &session.control_socket,
+        &action,
+        keycode,
+        0,
+        meta_state.unwrap_or(0),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -188,6 +195,16 @@ pub async fn send_text(text: String, state: State<'_, AppState>) -> Result<(), S
     let session = state.session.lock().await;
     let session = session.as_ref().ok_or("Not connected")?;
     control::inject_text(&session.control_socket, &text)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Non-ASCII cannot travel through INJECT_TEXT: scrcpy builds those events from a US-only KeyCharacterMap.
+#[tauri::command]
+pub async fn paste_text(text: String, state: State<'_, AppState>) -> Result<(), String> {
+    let session = state.session.lock().await;
+    let session = session.as_ref().ok_or("Not connected")?;
+    control::set_clipboard(&session.control_socket, &text, true)
         .await
         .map_err(|e| e.to_string())
 }

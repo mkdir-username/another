@@ -10,6 +10,7 @@ const MSG_TYPE_INJECT_TOUCH: u8 = 2;
 const MSG_TYPE_INJECT_SCROLL: u8 = 3;
 #[allow(dead_code)]
 const MSG_TYPE_BACK_OR_SCREEN_ON: u8 = 4;
+const MSG_TYPE_SET_CLIPBOARD: u8 = 9;
 const MSG_TYPE_ROTATE_DEVICE: u8 = 11;
 
 pub const KEYCODE_HOME: u32 = 3;
@@ -106,6 +107,25 @@ pub async fn inject_text(socket: &Mutex<TcpStream>, text: &str) -> Result<()> {
     Ok(())
 }
 
+fn build_clipboard_msg(text: &str, paste: bool) -> Vec<u8> {
+    let bytes = text.as_bytes();
+    let mut buf: Vec<u8> = Vec::with_capacity(14 + bytes.len());
+    WriteBytesExt::write_u8(&mut buf, MSG_TYPE_SET_CLIPBOARD).unwrap();
+    WriteBytesExt::write_u64::<BigEndian>(&mut buf, 0).unwrap();
+    WriteBytesExt::write_u8(&mut buf, paste as u8).unwrap();
+    WriteBytesExt::write_u32::<BigEndian>(&mut buf, bytes.len() as u32).unwrap();
+    std::io::Write::write_all(&mut buf, bytes).unwrap();
+    buf
+}
+
+/// Sequence 0 asks the device not to acknowledge — there is no return channel for an ack here.
+pub async fn set_clipboard(socket: &Mutex<TcpStream>, text: &str, paste: bool) -> Result<()> {
+    let buf = build_clipboard_msg(text, paste);
+    let mut stream = socket.lock().await;
+    stream.write_all(&buf).await?;
+    Ok(())
+}
+
 pub async fn rotate_device(socket: &Mutex<TcpStream>) -> Result<()> {
     let buf = vec![MSG_TYPE_ROTATE_DEVICE];
     let mut stream = socket.lock().await;
@@ -153,5 +173,16 @@ mod tests {
     fn mouse_pointer_id_is_preserved() {
         let buf = build_touch_msg("move", 1, 2, 10, 20, POINTER_ID_MOUSE);
         assert_eq!(&buf[2..10], &[0xFF; 8]);
+    }
+
+    #[test]
+    fn clipboard_msg_carries_paste_flag_and_utf8() {
+        let buf = build_clipboard_msg("привет", true);
+        assert_eq!(buf[0], MSG_TYPE_SET_CLIPBOARD);
+        assert_eq!(&buf[1..9], &0u64.to_be_bytes());
+        assert_eq!(buf[9], 1);
+        let text = "привет".as_bytes();
+        assert_eq!(&buf[10..14], &(text.len() as u32).to_be_bytes());
+        assert_eq!(&buf[14..], text);
     }
 }

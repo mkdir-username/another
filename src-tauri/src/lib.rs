@@ -59,6 +59,7 @@ pub fn run() {
             commands::send_touch,
             commands::send_key,
             commands::send_text,
+            commands::paste_text,
             commands::send_scroll,
             commands::system_natural_scroll,
             commands::take_screenshot,
