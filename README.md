@@ -62,6 +62,11 @@ Grab the latest release for your platform:
 | `⌘D` | Disconnect |
 | `⌘T` | Toggle Theme |
 | `⌘,` | Settings |
+| `Esc` | Close current screen (sends Back) |
+| `⇧Esc` | Home, when Back has nowhere left to go |
+| `⌘⇧` (tapped alone) | Switch device keyboard language |
+| `⌘C` / `⌘V` / `⌘X` / `⌘A` / `⌘Z` | Copy / Paste / Cut / Select All / Undo on device |
+| `⌥⌫` / `⌘⌫` | Delete word / Delete line |
 
 > On Windows/Linux, use `Ctrl` instead of `⌘`.
 

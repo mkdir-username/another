@@ -27,8 +27,15 @@ describe("resolveKey", () => {
     ]);
   });
 
-  it("голый Escape и стрелки работают без модификаторов", () => {
-    expect(resolveKey(k("Escape"))).toEqual([{ keycode: ANDROID.ESCAPE, meta: 0 }]);
+  it("Escape закрывает экран — шлёт системный BACK, а не ESCAPE", () => {
+    expect(resolveKey(k("Escape"))).toEqual([{ keycode: ANDROID.BACK, meta: 0 }]);
+  });
+
+  it("Shift+Escape уводит на домашний экран, когда назад некуда", () => {
+    expect(resolveKey(k("Escape", { shiftKey: true }))).toEqual([{ keycode: ANDROID.HOME, meta: 0 }]);
+  });
+
+  it("стрелки и ввод работают без модификаторов", () => {
     expect(resolveKey(k("ArrowUp"))).toEqual([{ keycode: ANDROID.UP, meta: 0 }]);
     expect(resolveKey(k("Enter"))).toEqual([{ keycode: ANDROID.ENTER, meta: 0 }]);
     expect(resolveKey(k("Backspace"))).toEqual([{ keycode: ANDROID.DEL, meta: 0 }]);

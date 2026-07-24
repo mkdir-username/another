@@ -3,6 +3,7 @@ export const ANDROID = {
   DEL: 67, ENTER: 66, FORWARD_DEL: 112, TAB: 61, ESCAPE: 111, SPACE: 62,
   UP: 19, DOWN: 20, LEFT: 21, RIGHT: 22,
   MOVE_HOME: 122,
+  HOME: 3, BACK: 4,
   META_SHIFT: 0x1,
   META_CTRL: 0x1000,
 } as const;
@@ -27,7 +28,6 @@ const PLAIN: Record<string, number> = {
   ArrowDown: ANDROID.DOWN,
   ArrowLeft: ANDROID.LEFT,
   ArrowRight: ANDROID.RIGHT,
-  Escape: ANDROID.ESCAPE,
   Tab: ANDROID.TAB,
 };
 
@@ -37,6 +37,12 @@ const CMD_TO_CTRL: Record<string, number> = {
 
 /** Returns the strokes to inject, or null when the event should be typed as text instead. */
 export function resolveKey(e: KeyLike): KeyStroke[] | null {
+  // BACK rather than ESCAPE: Android's escape key is honoured by almost nothing,
+  // while BACK closes whatever is on screen even where no back affordance is drawn.
+  if (e.key === "Escape" && !e.metaKey && !e.altKey) {
+    return [{ keycode: e.shiftKey ? ANDROID.HOME : ANDROID.BACK, meta: 0 }];
+  }
+
   if (e.key === "Backspace") {
     if (e.metaKey) {
       return [
