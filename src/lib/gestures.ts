@@ -24,15 +24,20 @@ export interface Delta {
   dy: number;
 }
 
+export interface WheelTuning {
+  natural: boolean;
+  invert: boolean;
+  gain: number;
+}
+
 /**
  * Normalized finger displacement across the canvas.
- * The OS has already applied the natural-scrolling preference to the delta sign, so with
- * natural scrolling on we flip it back: the on-screen finger must travel the same physical
- * direction the fingers travel on the trackpad.
+ * Direction is settled empirically, not derived: `natural` seeds the sign from the system
+ * preference and `invert` overrides it, because the OS sign convention proved unreliable to reason about.
  */
-export function wheelToFingerDelta(e: WheelLike, rect: Size, naturalScroll: boolean): Delta {
+export function wheelToFingerDelta(e: WheelLike, rect: Size, tuning: WheelTuning): Delta {
   const unit = e.deltaMode === 1 ? LINE_HEIGHT_PX : e.deltaMode === 2 ? rect.height : 1;
-  const sign = naturalScroll ? -1 : 1;
+  const sign = (tuning.natural !== tuning.invert ? 1 : -1) * tuning.gain;
   return {
     dx: (sign * e.deltaX * unit) / rect.width,
     dy: (sign * e.deltaY * unit) / rect.height,

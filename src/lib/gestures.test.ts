@@ -2,31 +2,47 @@ import { describe, it, expect } from "vitest";
 import { wheelToFingerDelta, advanceDrag, clamp01, pinchPointers, PINCH_BASE_SPAN } from "./gestures";
 
 const rect = { width: 400, height: 800 };
+const base = { natural: false, invert: false, gain: 1 };
 
 describe("wheelToFingerDelta", () => {
-  it("classic scrolling: пальцы вниз двигают палец вниз по экрану", () => {
-    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, false);
-    expect(d.dy).toBeCloseTo(0.1);
-  });
-
-  it("natural scrolling: тот же deltaY даёт противоположное направление", () => {
-    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, true);
+  it("classic scrolling: палец идёт против знака дельты", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, base);
     expect(d.dy).toBeCloseTo(-0.1);
   });
 
-  it("горизонталь нормализуется по ширине, а не по высоте", () => {
-    const d = wheelToFingerDelta({ deltaX: 40, deltaY: 0, deltaMode: 0 }, rect, false);
-    expect(d.dx).toBeCloseTo(0.1);
-  });
-
-  it("построчный режим переводится в пиксели", () => {
-    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 5, deltaMode: 1 }, rect, false);
+  it("natural scrolling переворачивает знак обратно", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, natural: true });
     expect(d.dy).toBeCloseTo(0.1);
   });
 
+  it("тумблер инверсии перекрывает системную настройку", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, invert: true });
+    expect(d.dy).toBeCloseTo(0.1);
+  });
+
+  it("инверсия и natural вместе гасят друг друга", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { natural: true, invert: true, gain: 1 });
+    expect(d.dy).toBeCloseTo(-0.1);
+  });
+
+  it("gain усиливает смещение", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, gain: 3 });
+    expect(d.dy).toBeCloseTo(-0.3);
+  });
+
+  it("горизонталь нормализуется по ширине, а не по высоте", () => {
+    const d = wheelToFingerDelta({ deltaX: 40, deltaY: 0, deltaMode: 0 }, rect, base);
+    expect(d.dx).toBeCloseTo(-0.1);
+  });
+
+  it("построчный режим переводится в пиксели", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 5, deltaMode: 1 }, rect, base);
+    expect(d.dy).toBeCloseTo(-0.1);
+  });
+
   it("постраничный режим меряется высотой окна", () => {
-    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, rect, false);
-    expect(d.dy).toBeCloseTo(1);
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, rect, base);
+    expect(d.dy).toBeCloseTo(-1);
   });
 });
 

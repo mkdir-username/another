@@ -378,7 +378,11 @@ export function useConnection(opts: UseConnectionOptions) {
         .finally(() => { g.ready = true; pumpDrag(); });
     }
 
-    const d = wheelToFingerDelta(e, rect, naturalScrollRef.current);
+    const d = wheelToFingerDelta(e, rect, {
+      natural: naturalScrollRef.current,
+      invert: false,
+      gain: 1,
+    });
     g.dx += d.dx;
     g.dy += d.dy;
     pumpDrag();
