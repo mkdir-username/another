@@ -26,21 +26,22 @@ export interface Delta {
 
 export interface WheelTuning {
   natural: boolean;
-  invert: boolean;
+  invertX: boolean;
+  invertY: boolean;
   gain: number;
 }
 
 /**
  * Normalized finger displacement across the canvas.
- * Both signs are settled empirically, not derived: `natural` seeds them from the system preference
- * and `invert` flips both, because the OS sign convention proved unreliable to reason about.
- * The axes carry OPPOSITE polarity — a single shared sign was correct on one axis and wrong on the other.
+ * Each axis carries its OWN flip: deriving one shared sign from the system preference kept getting
+ * one axis right and the other wrong, so direction is a per-axis setting rather than a deduction.
  */
 export function wheelToFingerDelta(e: WheelLike, rect: Size, tuning: WheelTuning): Delta {
   const unit = e.deltaMode === 1 ? LINE_HEIGHT_PX : e.deltaMode === 2 ? rect.height : 1;
-  const signY = (tuning.natural !== tuning.invert ? 1 : -1) * tuning.gain;
+  const signX = (tuning.natural !== tuning.invertX ? -1 : 1) * tuning.gain;
+  const signY = (tuning.natural !== tuning.invertY ? -1 : 1) * tuning.gain;
   return {
-    dx: (-signY * e.deltaX * unit) / rect.width,
+    dx: (signX * e.deltaX * unit) / rect.width,
     dy: (signY * e.deltaY * unit) / rect.height,
   };
 }

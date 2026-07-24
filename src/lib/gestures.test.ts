@@ -5,32 +5,37 @@ import {
 } from "./gestures";
 
 const rect = { width: 400, height: 800 };
-const base = { natural: false, invert: false, gain: 1 };
+const base = { natural: false, invertX: false, invertY: false, gain: 1 };
 
 describe("wheelToFingerDelta", () => {
-  it("classic scrolling: палец идёт против знака дельты", () => {
+  it("classic scrolling: палец идёт по знаку дельты", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, base);
-    expect(d.dy).toBeCloseTo(-0.1);
+    expect(d.dy).toBeCloseTo(0.1);
   });
 
-  it("natural scrolling переворачивает знак обратно", () => {
+  it("natural scrolling переворачивает знак", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, natural: true });
-    expect(d.dy).toBeCloseTo(0.1);
-  });
-
-  it("тумблер инверсии перекрывает системную настройку", () => {
-    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, invert: true });
-    expect(d.dy).toBeCloseTo(0.1);
-  });
-
-  it("инверсия и natural вместе гасят друг друга", () => {
-    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { natural: true, invert: true, gain: 1 });
     expect(d.dy).toBeCloseTo(-0.1);
+  });
+
+  it("оси переворачиваются независимо друг от друга", () => {
+    const flipY = wheelToFingerDelta({ deltaX: 40, deltaY: 80, deltaMode: 0 }, rect, { ...base, invertY: true });
+    expect(flipY.dx).toBeCloseTo(0.1);
+    expect(flipY.dy).toBeCloseTo(-0.1);
+
+    const flipX = wheelToFingerDelta({ deltaX: 40, deltaY: 80, deltaMode: 0 }, rect, { ...base, invertX: true });
+    expect(flipX.dx).toBeCloseTo(-0.1);
+    expect(flipX.dy).toBeCloseTo(0.1);
+  });
+
+  it("тумблер оси и natural гасят друг друга", () => {
+    const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, natural: true, invertY: true });
+    expect(d.dy).toBeCloseTo(0.1);
   });
 
   it("gain усиливает смещение", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 80, deltaMode: 0 }, rect, { ...base, gain: 3 });
-    expect(d.dy).toBeCloseTo(-0.3);
+    expect(d.dy).toBeCloseTo(0.3);
   });
 
   it("горизонталь нормализуется по ширине, а не по высоте", () => {
@@ -38,26 +43,14 @@ describe("wheelToFingerDelta", () => {
     expect(d.dx).toBeCloseTo(0.1);
   });
 
-  it("оси идут в противоположных знаках — так требует macOS", () => {
-    const d = wheelToFingerDelta({ deltaX: 40, deltaY: 80, deltaMode: 0 }, rect, base);
-    expect(Math.sign(d.dx)).toBe(1);
-    expect(Math.sign(d.dy)).toBe(-1);
-  });
-
-  it("инверсия переворачивает обе оси разом", () => {
-    const d = wheelToFingerDelta({ deltaX: 40, deltaY: 80, deltaMode: 0 }, rect, { ...base, invert: true });
-    expect(d.dx).toBeCloseTo(-0.1);
-    expect(d.dy).toBeCloseTo(0.1);
-  });
-
   it("построчный режим переводится в пиксели", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 5, deltaMode: 1 }, rect, base);
-    expect(d.dy).toBeCloseTo(-0.1);
+    expect(d.dy).toBeCloseTo(0.1);
   });
 
   it("постраничный режим меряется высотой окна", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, rect, base);
-    expect(d.dy).toBeCloseTo(-1);
+    expect(d.dy).toBeCloseTo(1);
   });
 });
 

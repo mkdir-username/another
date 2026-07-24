@@ -2,13 +2,14 @@ import { useState, useCallback } from "react";
 
 export interface GestureSettings {
   swipeGain: number;
-  invertScroll: boolean;
+  invertX: boolean;
+  invertY: boolean;
   edgeBack: boolean;
   scrollInertia: boolean;
 }
 
 const KEY = "gesture_settings";
-const DEFAULTS: GestureSettings = { swipeGain: 2.5, invertScroll: false, edgeBack: true, scrollInertia: true };
+const DEFAULTS: GestureSettings = { swipeGain: 2.5, invertX: false, invertY: false, edgeBack: true, scrollInertia: true };
 
 /** Kept out of `Settings` on purpose: updating that one schedules a reconnect and tears down the video stream. */
 export function useGestureSettings() {

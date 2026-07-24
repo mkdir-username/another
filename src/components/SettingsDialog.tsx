@@ -198,10 +198,18 @@ export function SettingsDialog({
                 </div>
 
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[13px] font-medium text-foreground">Invert scroll direction</span>
+                  <span className="text-[13px] font-medium text-foreground">Invert vertical</span>
                   <Switch
-                    checked={gestureSettings.invertScroll}
-                    onCheckedChange={(checked) => onUpdateGestureSetting("invertScroll", checked)}
+                    checked={gestureSettings.invertY}
+                    onCheckedChange={(checked) => onUpdateGestureSetting("invertY", checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[13px] font-medium text-foreground">Invert horizontal</span>
+                  <Switch
+                    checked={gestureSettings.invertX}
+                    onCheckedChange={(checked) => onUpdateGestureSetting("invertX", checked)}
                   />
                 </div>
 

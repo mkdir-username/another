@@ -482,7 +482,8 @@ export function useConnection(opts: UseConnectionOptions) {
 
     const d = wheelToFingerDelta(e, rect, {
       natural: naturalScrollRef.current,
-      invert: tuning.invertScroll,
+      invertX: tuning.invertX,
+      invertY: tuning.invertY,
       gain: tuning.swipeGain,
     });
 
