@@ -17,6 +17,7 @@ import {
 } from "@heroicons/react/24/outline";
 import type { Device, WebKitGestureEvent } from "../types";
 import { getDeviceDisplayName, type QuickActionId } from "../types";
+import { createModComboWatcher } from "../lib/keymap";
 import { Button } from "@/components/ui/button";
 
 const QUICK_ACTION_ICONS: Record<QuickActionId, (props: { muted?: boolean; recording?: boolean; macroRecording?: boolean }) => React.ReactNode> = {
@@ -62,6 +63,7 @@ interface MirrorScreenProps {
   onPinchChange: (e: WebKitGestureEvent) => void;
   onPinchEnd: (e: WebKitGestureEvent) => void;
   onKeyDown: (e: KeyboardEvent) => void;
+  onSwitchLanguage: () => void;
   onCompositionStart: () => void;
   onCompositionEnd: (e: React.CompositionEvent) => void;
 }
@@ -104,6 +106,7 @@ export function MirrorScreen({
   onPinchChange,
   onPinchEnd,
   onKeyDown,
+  onSwitchLanguage,
   onCompositionStart,
   onCompositionEnd,
 }: MirrorScreenProps) {
@@ -128,15 +131,28 @@ export function MirrorScreen({
 
   // Listening on the window rather than the viewport div: without a click there is no focus there, so Esc never arrives.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+    const combo = createModComboWatcher();
+    const typingElsewhere = () => {
       const el = document.activeElement;
-      if (el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      return el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (typingElsewhere()) return;
+      combo.down(e);
+      if (e.defaultPrevented) return;
       onKeyDown(e);
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (typingElsewhere()) return;
+      if (combo.up(e)) onSwitchLanguage();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onKeyDown]);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [onKeyDown, onSwitchLanguage]);
 
   const quickActionHandlers: Record<QuickActionId, () => void> = {
     record: onToggleRecording,

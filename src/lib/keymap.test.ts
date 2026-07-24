@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveKey, needsClipboard, ANDROID } from "./keymap";
+import { resolveKey, needsClipboard, ANDROID, createModComboWatcher } from "./keymap";
 
 const k = (key: string, mod: Partial<{ metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
   ({ key, metaKey: false, altKey: false, shiftKey: false, ...mod });
@@ -41,6 +41,29 @@ describe("resolveKey", () => {
 
   it("незнакомая комбинация игнорируется", () => {
     expect(resolveKey(k("q", { metaKey: true }))).toBeNull();
+  });
+});
+
+describe("createModComboWatcher", () => {
+  it("Cmd+Shift нажаты и отпущены вхолостую — срабатывает", () => {
+    const w = createModComboWatcher();
+    w.down({ key: "Meta", metaKey: true, shiftKey: false });
+    w.down({ key: "Shift", metaKey: true, shiftKey: true });
+    expect(w.up({ key: "Shift", metaKey: true, shiftKey: false })).toBe(true);
+  });
+
+  it("если между ними нажали букву — не срабатывает", () => {
+    const w = createModComboWatcher();
+    w.down({ key: "Meta", metaKey: true, shiftKey: false });
+    w.down({ key: "Shift", metaKey: true, shiftKey: true });
+    w.down({ key: "r", metaKey: true, shiftKey: true });
+    expect(w.up({ key: "Shift", metaKey: true, shiftKey: false })).toBe(false);
+  });
+
+  it("одного Cmd недостаточно", () => {
+    const w = createModComboWatcher();
+    w.down({ key: "Meta", metaKey: true, shiftKey: false });
+    expect(w.up({ key: "Meta", metaKey: false, shiftKey: false })).toBe(false);
   });
 });
 

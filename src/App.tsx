@@ -126,6 +126,7 @@ function App() {
     handleKeyDown,
     handleCompositionStart,
     handleCompositionEnd,
+    switchLanguage,
   } = useConnection({
     settings,
     gestureSettings,
@@ -294,6 +295,7 @@ function App() {
           onPinchChange={handlePinchChange}
           onPinchEnd={handlePinchEnd}
           onKeyDown={handleKeyDown}
+          onSwitchLanguage={switchLanguage}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
         />

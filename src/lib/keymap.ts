@@ -58,6 +58,32 @@ export function resolveKey(e: KeyLike): KeyStroke[] | null {
   return plain ? [{ keycode: plain, meta: 0 }] : null;
 }
 
+/**
+ * Fires when Cmd+Shift are pressed and released without anything in between.
+ * fn would be the natural key for this, but WebKit never reports it in keydown.
+ */
+export function createModComboWatcher() {
+  let armed = false;
+  let polluted = false;
+
+  return {
+    down(e: { key: string; metaKey: boolean; shiftKey: boolean }) {
+      if (e.key === "Meta" || e.key === "Shift") {
+        if (e.metaKey && e.shiftKey) armed = true;
+        return;
+      }
+      if (armed) polluted = true;
+    },
+    up(e: { key: string; metaKey: boolean; shiftKey: boolean }): boolean {
+      if (e.key !== "Meta" && e.key !== "Shift") return false;
+      const fire = armed && !polluted;
+      armed = false;
+      polluted = false;
+      return fire;
+    },
+  };
+}
+
 /** scrcpy injects text through KeyCharacterMap, which only covers the virtual US layout. */
 export function needsClipboard(text: string): boolean {
   return [...text].some((ch) => (ch.codePointAt(0) ?? 0) > 0x7f);
