@@ -91,6 +91,7 @@ pub async fn play_events(
                     py,
                     screen_w as u16,
                     screen_h as u16,
+                    control::POINTER_ID_MOUSE,
                 )
                 .await?;
             }

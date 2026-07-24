@@ -132,6 +132,7 @@ pub async fn send_touch(
     action: String,
     x: f64,
     y: f64,
+    pointer_id: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let session = state.session.lock().await;
@@ -145,6 +146,7 @@ pub async fn send_touch(
         py,
         session.screen_width as u16,
         session.screen_height as u16,
+        pointer_id.unwrap_or(control::POINTER_ID_MOUSE),
     )
     .await
     .map_err(|e| e.to_string())

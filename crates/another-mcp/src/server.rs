@@ -397,6 +397,7 @@ impl AnotherMcp {
                 px, py,
                 session.screen_width as u16,
                 session.screen_height as u16,
+                control::POINTER_ID_MOUSE,
             ).await {
                 return format!("Error: {}", e);
             }
@@ -545,6 +546,7 @@ impl AnotherMcp {
         if let Err(e) = control::inject_touch(
             &socket, "down",
             from_px, from_py, w as u16, h as u16,
+            control::POINTER_ID_MOUSE,
         ).await {
             return format!("Error: {}", e);
         }
@@ -557,6 +559,7 @@ impl AnotherMcp {
             if let Err(e) = control::inject_touch(
                 &socket, "move",
                 cx as u32, cy as u32, w as u16, h as u16,
+                control::POINTER_ID_MOUSE,
             ).await {
                 return format!("Error: {}", e);
             }
@@ -565,6 +568,7 @@ impl AnotherMcp {
         if let Err(e) = control::inject_touch(
             &socket, "up",
             to_px, to_py, w as u16, h as u16,
+            control::POINTER_ID_MOUSE,
         ).await {
             return format!("Error: {}", e);
         }

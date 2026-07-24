@@ -24,6 +24,10 @@ const ACTION_DOWN: u8 = 0;
 const ACTION_UP: u8 = 1;
 const ACTION_MOVE: u8 = 2;
 
+pub const POINTER_ID_MOUSE: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+pub const POINTER_ID_FINGER_A: u64 = 0;
+pub const POINTER_ID_FINGER_B: u64 = 1;
+
 fn action_from_str(s: &str) -> u8 {
     match s {
         "down" => ACTION_DOWN,
@@ -33,11 +37,18 @@ fn action_from_str(s: &str) -> u8 {
     }
 }
 
-fn build_touch_msg(action: &str, x: u32, y: u32, screen_w: u16, screen_h: u16) -> Vec<u8> {
+fn build_touch_msg(
+    action: &str,
+    x: u32,
+    y: u32,
+    screen_w: u16,
+    screen_h: u16,
+    pointer_id: u64,
+) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::with_capacity(32);
     WriteBytesExt::write_u8(&mut buf, MSG_TYPE_INJECT_TOUCH).unwrap();
     WriteBytesExt::write_u8(&mut buf, action_from_str(action)).unwrap();
-    WriteBytesExt::write_u64::<BigEndian>(&mut buf, 0xFFFFFFFFFFFFFFFF).unwrap();
+    WriteBytesExt::write_u64::<BigEndian>(&mut buf, pointer_id).unwrap();
     WriteBytesExt::write_u32::<BigEndian>(&mut buf, x).unwrap();
     WriteBytesExt::write_u32::<BigEndian>(&mut buf, y).unwrap();
     WriteBytesExt::write_u16::<BigEndian>(&mut buf, screen_w).unwrap();
@@ -56,8 +67,9 @@ pub async fn inject_touch(
     y: u32,
     screen_w: u16,
     screen_h: u16,
+    pointer_id: u64,
 ) -> Result<()> {
-    let buf = build_touch_msg(action, x, y, screen_w, screen_h);
+    let buf = build_touch_msg(action, x, y, screen_w, screen_h, pointer_id);
     let mut stream = socket.lock().await;
     stream.write_all(&buf).await?;
     Ok(())
@@ -123,4 +135,23 @@ pub async fn inject_scroll(
     let mut stream = socket.lock().await;
     stream.write_all(&buf).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touch_msg_carries_pointer_id() {
+        let buf = build_touch_msg("down", 100, 200, 1080, 1920, POINTER_ID_FINGER_B);
+        assert_eq!(buf[0], MSG_TYPE_INJECT_TOUCH);
+        assert_eq!(buf[1], ACTION_DOWN);
+        assert_eq!(&buf[2..10], &1u64.to_be_bytes());
+    }
+
+    #[test]
+    fn mouse_pointer_id_is_preserved() {
+        let buf = build_touch_msg("move", 1, 2, 10, 20, POINTER_ID_MOUSE);
+        assert_eq!(&buf[2..10], &[0xFF; 8]);
+    }
 }
