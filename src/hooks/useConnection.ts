@@ -2,7 +2,11 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import type { Device, Settings, FrameEvent, Screen, MacroEvent } from "../types";
+import type { Device, Settings, FrameEvent, Screen, MacroEvent, WebKitGestureEvent } from "../types";
+import { wheelToFingerDelta, advanceDrag, pinchPointers, clamp01, GESTURE_END_MS } from "../lib/gestures";
+
+const POINTER_A = 0;
+const POINTER_B = 1;
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -38,6 +42,10 @@ export function useConnection(opts: UseConnectionOptions) {
   const pendingFrame = useRef<VideoFrame | null>(null);
   const rafId = useRef<number>(0);
   const isMouseDownRef = useRef(false);
+  const naturalScrollRef = useRef(true);
+  const touchChain = useRef<Promise<unknown>>(Promise.resolve());
+  const drag = useRef({ active: false, x: 0.5, y: 0.5, dx: 0, dy: 0, frame: 0, endTimer: 0 });
+  const pinch = useRef({ active: false, cx: 0.5, cy: 0.5 });
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isReconnecting = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -291,17 +299,101 @@ export function useConnection(opts: UseConnectionOptions) {
     try { await invoke("send_touch", { action, x, y }); } catch { }
   };
 
-  const handleWheel = async (e: React.WheelEvent<HTMLCanvasElement>) => {
-    if (!connectedDevice) return;
+  useEffect(() => {
+    invoke<boolean>("system_natural_scroll")
+      .then((v) => { naturalScrollRef.current = v; })
+      .catch(() => { });
+  }, []);
+
+  const sendTouch = useCallback((action: string, x: number, y: number, pointerId?: number) => {
+    touchChain.current = touchChain.current.then(() =>
+      invoke("send_touch", { action, x, y, pointerId }).catch(() => { })
+    );
+    return touchChain.current;
+  }, []);
+
+  const flushDrag = useCallback(() => {
+    const g = drag.current;
+    g.frame = 0;
+    if (!g.active || (g.dx === 0 && g.dy === 0)) return;
+    const next = advanceDrag({ x: g.x, y: g.y }, { dx: g.dx, dy: g.dy });
+    g.x = next.x;
+    g.y = next.y;
+    g.dx = 0;
+    g.dy = 0;
+    opts.onRecordEvent?.({ type: "touch", action: "move", x: g.x, y: g.y });
+    void sendTouch("move", g.x, g.y);
+  }, [sendTouch]);
+
+  const endDrag = useCallback(() => {
+    const g = drag.current;
+    if (!g.active) return;
+    g.active = false;
+    if (g.endTimer) {
+      clearTimeout(g.endTimer);
+      g.endTimer = 0;
+    }
+    opts.onRecordEvent?.({ type: "touch", action: "up", x: g.x, y: g.y });
+    void sendTouch("up", g.x, g.y);
+  }, [sendTouch]);
+
+  const handleWheel = useCallback((e: WheelEvent) => {
+    if (!connectedDevice || isMouseDownRef.current || pinch.current.active) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    const dy = e.deltaY > 0 ? -1 : 1;
-    opts.onRecordEvent?.({ type: "scroll", x, y, dx: 0, dy });
-    try { await invoke("send_scroll", { x, y, dx: 0, dy }); } catch { }
-  };
+    const g = drag.current;
+
+    if (!g.active) {
+      g.active = true;
+      g.x = clamp01((e.clientX - rect.left) / rect.width);
+      g.y = clamp01((e.clientY - rect.top) / rect.height);
+      g.dx = 0;
+      g.dy = 0;
+      opts.onRecordEvent?.({ type: "touch", action: "down", x: g.x, y: g.y });
+      void sendTouch("down", g.x, g.y);
+    }
+
+    const d = wheelToFingerDelta(e, rect, naturalScrollRef.current);
+    g.dx += d.dx;
+    g.dy += d.dy;
+
+    if (!g.frame) g.frame = requestAnimationFrame(flushDrag);
+    if (g.endTimer) clearTimeout(g.endTimer);
+    g.endTimer = window.setTimeout(endDrag, GESTURE_END_MS);
+  }, [connectedDevice, sendTouch, flushDrag, endDrag]);
+
+  const handlePinchStart = useCallback((e: WebKitGestureEvent) => {
+    if (!connectedDevice || isMouseDownRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    endDrag();
+    const rect = canvas.getBoundingClientRect();
+    const p = pinch.current;
+    p.active = true;
+    p.cx = clamp01((e.clientX - rect.left) / rect.width);
+    p.cy = clamp01((e.clientY - rect.top) / rect.height);
+    const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, 1);
+    void sendTouch("down", a.x, a.y, POINTER_A);
+    void sendTouch("down", b.x, b.y, POINTER_B);
+  }, [connectedDevice, sendTouch, endDrag]);
+
+  const handlePinchChange = useCallback((e: WebKitGestureEvent) => {
+    const p = pinch.current;
+    if (!p.active) return;
+    const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, e.scale);
+    void sendTouch("move", a.x, a.y, POINTER_A);
+    void sendTouch("move", b.x, b.y, POINTER_B);
+  }, [sendTouch]);
+
+  const handlePinchEnd = useCallback((e: WebKitGestureEvent) => {
+    const p = pinch.current;
+    if (!p.active) return;
+    p.active = false;
+    const { a, b } = pinchPointers({ x: p.cx, y: p.cy }, e.scale);
+    void sendTouch("up", a.x, a.y, POINTER_A);
+    void sendTouch("up", b.x, b.y, POINTER_B);
+  }, [sendTouch]);
 
   const composingRef = useRef(false);
 
@@ -424,6 +516,9 @@ export function useConnection(opts: UseConnectionOptions) {
     pressButton,
     handleCanvasMouseEvent,
     handleWheel,
+    handlePinchStart,
+    handlePinchChange,
+    handlePinchEnd,
     handleKeyDown,
     handleCompositionStart,
     handleCompositionEnd,

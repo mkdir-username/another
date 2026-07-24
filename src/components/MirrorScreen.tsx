@@ -15,7 +15,7 @@ import {
   PowerIcon,
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
-import type { Device } from "../types";
+import type { Device, WebKitGestureEvent } from "../types";
 import { getDeviceDisplayName, type QuickActionId } from "../types";
 import { Button } from "@/components/ui/button";
 
@@ -57,7 +57,10 @@ interface MirrorScreenProps {
   onRotate: () => void;
   onToggleMute: () => void;
   onCanvasMouseEvent: (e: React.MouseEvent<HTMLCanvasElement>, action: string) => void;
-  onWheel: (e: React.WheelEvent<HTMLCanvasElement>) => void;
+  onWheel: (e: WheelEvent) => void;
+  onPinchStart: (e: WebKitGestureEvent) => void;
+  onPinchChange: (e: WebKitGestureEvent) => void;
+  onPinchEnd: (e: WebKitGestureEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onCompositionStart: () => void;
   onCompositionEnd: (e: React.CompositionEvent) => void;
@@ -97,10 +100,32 @@ export function MirrorScreen({
   onToggleMute,
   onCanvasMouseEvent,
   onWheel,
+  onPinchStart,
+  onPinchChange,
+  onPinchEnd,
   onKeyDown,
   onCompositionStart,
   onCompositionEnd,
 }: MirrorScreenProps) {
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const wheel = (e: WheelEvent) => { e.preventDefault(); onWheel(e); };
+    const gStart = (e: Event) => { e.preventDefault(); onPinchStart(e as unknown as WebKitGestureEvent); };
+    const gChange = (e: Event) => { e.preventDefault(); onPinchChange(e as unknown as WebKitGestureEvent); };
+    const gEnd = (e: Event) => { e.preventDefault(); onPinchEnd(e as unknown as WebKitGestureEvent); };
+    canvas.addEventListener("wheel", wheel, { passive: false });
+    canvas.addEventListener("gesturestart", gStart, { passive: false });
+    canvas.addEventListener("gesturechange", gChange, { passive: false });
+    canvas.addEventListener("gestureend", gEnd, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", wheel);
+      canvas.removeEventListener("gesturestart", gStart);
+      canvas.removeEventListener("gesturechange", gChange);
+      canvas.removeEventListener("gestureend", gEnd);
+    };
+  }, [canvasRef, connecting, onWheel, onPinchStart, onPinchChange, onPinchEnd]);
+
   const quickActionHandlers: Record<QuickActionId, () => void> = {
     record: onToggleRecording,
     mute: onToggleMute,
@@ -221,7 +246,6 @@ export function MirrorScreen({
             onMouseMove={(e) => { if (isMouseDownRef.current) onCanvasMouseEvent(e, "move"); }}
             onMouseUp={(e) => { isMouseDownRef.current = false; onCanvasMouseEvent(e, "up"); }}
             onMouseLeave={(e) => { if (isMouseDownRef.current) { isMouseDownRef.current = false; onCanvasMouseEvent(e, "up"); } }}
-            onWheel={onWheel}
             onContextMenu={(e) => e.preventDefault()}
           />
         )}

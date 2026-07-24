@@ -45,6 +45,13 @@ export type FrameEvent =
 
 export type Screen = "welcome" | "another";
 
+/** WebKit-only pinch/rotate gesture event, available in WKWebView but absent from lib.dom. */
+export interface WebKitGestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
+
 export function getDeviceNickname(serial: string): string | null {
   return localStorage.getItem(`device_nickname_${serial}`);
 }

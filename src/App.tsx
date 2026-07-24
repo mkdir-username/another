@@ -118,6 +118,9 @@ function App() {
     pressButton,
     handleCanvasMouseEvent,
     handleWheel,
+    handlePinchStart,
+    handlePinchChange,
+    handlePinchEnd,
     handleKeyDown,
     handleCompositionStart,
     handleCompositionEnd,
@@ -284,6 +287,9 @@ function App() {
           onToggleMute={() => setMuted(!muted)}
           onCanvasMouseEvent={handleCanvasMouseEvent}
           onWheel={handleWheel}
+          onPinchStart={handlePinchStart}
+          onPinchChange={handlePinchChange}
+          onPinchEnd={handlePinchEnd}
           onKeyDown={handleKeyDown}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
