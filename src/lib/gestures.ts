@@ -45,6 +45,32 @@ export function wheelToFingerDelta(e: WheelLike, rect: Size, tuning: WheelTuning
   };
 }
 
+export const INERTIA_FRICTION = 0.94;
+export const INERTIA_MIN_SPEED = 0.0012;
+export const INERTIA_MAX_MS = 1400;
+const VELOCITY_SMOOTHING = 0.25;
+
+export interface Velocity {
+  vx: number;
+  vy: number;
+}
+
+/** Exponential moving average, so one jittery frame doesn't decide how far the throw carries. */
+export function trackVelocity(prev: Velocity, delta: Delta, smoothing = VELOCITY_SMOOTHING): Velocity {
+  return {
+    vx: prev.vx + (delta.dx - prev.vx) * smoothing,
+    vy: prev.vy + (delta.dy - prev.vy) * smoothing,
+  };
+}
+
+export function decayVelocity(v: Velocity, friction = INERTIA_FRICTION): Velocity {
+  return { vx: v.vx * friction, vy: v.vy * friction };
+}
+
+export function isVelocityAlive(v: Velocity, min = INERTIA_MIN_SPEED): boolean {
+  return Math.abs(v.vx) >= min || Math.abs(v.vy) >= min;
+}
+
 export const EDGE_ZONE = 0.08;
 export const EDGE_BACK_TRAVEL = 0.12;
 export const EDGE_DRAG_ESCAPE = 0.06;

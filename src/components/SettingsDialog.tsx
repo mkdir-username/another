@@ -190,6 +190,14 @@ export function SettingsDialog({
                 />
 
                 <div className="flex items-center justify-between mb-3">
+                  <span className="text-[13px] font-medium text-foreground">Scroll inertia</span>
+                  <Switch
+                    checked={gestureSettings.scrollInertia}
+                    onCheckedChange={(checked) => onUpdateGestureSetting("scrollInertia", checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between mb-3">
                   <span className="text-[13px] font-medium text-foreground">Invert scroll direction</span>
                   <Switch
                     checked={gestureSettings.invertScroll}

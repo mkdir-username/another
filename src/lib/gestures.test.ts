@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { wheelToFingerDelta, advanceDrag, clamp01, pinchPointers, PINCH_BASE_SPAN, edgeSideAt, isEdgeBack, EDGE_ZONE } from "./gestures";
+import {
+  wheelToFingerDelta, advanceDrag, clamp01, pinchPointers, PINCH_BASE_SPAN,
+  edgeSideAt, isEdgeBack, EDGE_ZONE, trackVelocity, decayVelocity, isVelocityAlive,
+} from "./gestures";
 
 const rect = { width: 400, height: 800 };
 const base = { natural: false, invert: false, gain: 1 };
@@ -55,6 +58,68 @@ describe("wheelToFingerDelta", () => {
   it("постраничный режим меряется высотой окна", () => {
     const d = wheelToFingerDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, rect, base);
     expect(d.dy).toBeCloseTo(-1);
+  });
+});
+
+describe("trackVelocity", () => {
+  const zero = { vx: 0, vy: 0 };
+
+  it("подхватывает движение с первого же события", () => {
+    const v = trackVelocity(zero, { dx: 0, dy: -0.1 });
+    expect(v.vy).toBeLessThan(0);
+    expect(v.vy).toBeGreaterThan(-0.1);
+  });
+
+  it("серия одинаковых дельт сходится к их величине", () => {
+    let v = zero;
+    for (let i = 0; i < 40; i++) v = trackVelocity(v, { dx: 0.05, dy: 0 });
+    expect(v.vx).toBeCloseTo(0.05, 2);
+  });
+
+  it("одиночный выброс не задаёт бросок целиком", () => {
+    let v = zero;
+    for (let i = 0; i < 20; i++) v = trackVelocity(v, { dx: 0.01, dy: 0 });
+    const spiked = trackVelocity(v, { dx: 1, dy: 0 });
+    expect(spiked.vx).toBeLessThan(0.5);
+  });
+
+  it("разворот направления гасит скорость", () => {
+    let v = zero;
+    for (let i = 0; i < 20; i++) v = trackVelocity(v, { dx: 0.05, dy: 0 });
+    const reversed = trackVelocity(v, { dx: -0.05, dy: 0 });
+    expect(reversed.vx).toBeLessThan(v.vx);
+  });
+});
+
+describe("decayVelocity", () => {
+  it("уменьшает скорость, не меняя знака", () => {
+    const v = decayVelocity({ vx: 0.1, vy: -0.2 });
+    expect(v.vx).toBeGreaterThan(0);
+    expect(v.vx).toBeLessThan(0.1);
+    expect(v.vy).toBeLessThan(0);
+    expect(v.vy).toBeGreaterThan(-0.2);
+  });
+
+  it("за конечное число шагов затухает до покоя", () => {
+    let v = { vx: 0.3, vy: 0.3 };
+    let steps = 0;
+    while (isVelocityAlive(v) && steps < 500) {
+      v = decayVelocity(v);
+      steps++;
+    }
+    expect(isVelocityAlive(v)).toBe(false);
+    expect(steps).toBeLessThan(200);
+  });
+});
+
+describe("isVelocityAlive", () => {
+  it("медленное дрожание броском не считается", () => {
+    expect(isVelocityAlive({ vx: 0.0001, vy: 0.0001 })).toBe(false);
+  });
+
+  it("заметное движение по любой оси продолжает бросок", () => {
+    expect(isVelocityAlive({ vx: 0, vy: 0.05 })).toBe(true);
+    expect(isVelocityAlive({ vx: -0.05, vy: 0 })).toBe(true);
   });
 });
 

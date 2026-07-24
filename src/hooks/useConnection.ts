@@ -6,6 +6,7 @@ import type { Device, Settings, FrameEvent, Screen, MacroEvent, WebKitGestureEve
 import {
   wheelToFingerDelta, advanceDrag, pinchPointers, clamp01,
   edgeSideAt, isEdgeBack, GESTURE_END_MS, EDGE_DRAG_ESCAPE, type EdgeSide,
+  trackVelocity, decayVelocity, isVelocityAlive, INERTIA_MAX_MS,
 } from "../lib/gestures";
 import type { GestureSettings } from "./useGestureSettings";
 import { resolveKey, needsClipboard, ANDROID } from "../lib/keymap";
@@ -57,6 +58,7 @@ export function useConnection(opts: UseConnectionOptions) {
     side: null as EdgeSide,
     mode: "drag" as "drag" | "undecided" | "consumed",
     probeDx: 0, probeDy: 0,
+    vx: 0, vy: 0, glideRaf: 0,
   });
   const pinch = useRef({
     active: false, ready: false, inFlight: false, dirty: false,
@@ -355,6 +357,55 @@ export function useConnection(opts: UseConnectionOptions) {
     }
   }, []);
 
+  const stopGlide = useCallback(() => {
+    const g = drag.current;
+    if (g.glideRaf) {
+      cancelAnimationFrame(g.glideRaf);
+      g.glideRaf = 0;
+    }
+  }, []);
+
+  const releaseDrag = useCallback(() => {
+    const g = drag.current;
+    g.active = false;
+    g.vx = 0;
+    g.vy = 0;
+    g.pendingUp = true;
+    pumpDrag();
+  }, [pumpDrag]);
+
+  /**
+   * The finger stays down and keeps travelling on its own after the swipe stops.
+   * Lifting it the moment the wheel goes quiet would leave the device with a motionless
+   * pointer, and its own fling never triggers.
+   */
+  const startGlide = useCallback(() => {
+    const g = drag.current;
+    const startedAt = performance.now();
+
+    const step = () => {
+      g.glideRaf = 0;
+      const decayed = decayVelocity({ vx: g.vx, vy: g.vy });
+      g.vx = decayed.vx;
+      g.vy = decayed.vy;
+
+      const atEdge = (g.x <= 0 && g.vx < 0) || (g.x >= 1 && g.vx > 0)
+        || (g.y <= 0 && g.vy < 0) || (g.y >= 1 && g.vy > 0);
+
+      if (!isVelocityAlive({ vx: g.vx, vy: g.vy }) || atEdge || performance.now() - startedAt > INERTIA_MAX_MS) {
+        releaseDrag();
+        return;
+      }
+
+      g.dx += g.vx;
+      g.dy += g.vy;
+      pumpDrag();
+      g.glideRaf = requestAnimationFrame(step);
+    };
+
+    g.glideRaf = requestAnimationFrame(step);
+  }, [pumpDrag, releaseDrag]);
+
   const startDragDown = useCallback((x: number, y: number) => {
     const g = drag.current;
     opts.onRecordEvent?.({ type: "touch", action: "down", x, y });
@@ -366,21 +417,26 @@ export function useConnection(opts: UseConnectionOptions) {
   const endDrag = useCallback(() => {
     const g = drag.current;
     if (!g.active) return;
-    g.active = false;
     if (g.endTimer) {
       clearTimeout(g.endTimer);
       g.endTimer = 0;
     }
     if (g.mode !== "drag") {
+      g.active = false;
       g.mode = "drag";
       g.side = null;
       g.probeDx = 0;
       g.probeDy = 0;
+      g.vx = 0;
+      g.vy = 0;
       return;
     }
-    g.pendingUp = true;
-    pumpDrag();
-  }, [pumpDrag]);
+    if (gestureSettingsRef.current.scrollInertia && isVelocityAlive({ vx: g.vx, vy: g.vy })) {
+      startGlide();
+      return;
+    }
+    releaseDrag();
+  }, [releaseDrag, startGlide]);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     if (!connectedDevice || isMouseDownRef.current || pinch.current.active) return;
@@ -390,6 +446,9 @@ export function useConnection(opts: UseConnectionOptions) {
     const g = drag.current;
 
     const tuning = gestureSettingsRef.current;
+
+    // A fresh swipe during the glide grabs the still-pressed finger back instead of starting a new touch.
+    stopGlide();
 
     if (!g.active) {
       const x = clamp01((e.clientX - rect.left) / rect.width);
@@ -404,6 +463,8 @@ export function useConnection(opts: UseConnectionOptions) {
       g.dy = 0;
       g.probeDx = 0;
       g.probeDy = 0;
+      g.vx = 0;
+      g.vy = 0;
       g.side = tuning.edgeBack ? edgeSideAt(x) : null;
       g.mode = g.side ? "undecided" : "drag";
       if (g.mode === "drag") startDragDown(x, y);
@@ -451,9 +512,12 @@ export function useConnection(opts: UseConnectionOptions) {
 
     g.dx += d.dx;
     g.dy += d.dy;
+    const v = trackVelocity({ vx: g.vx, vy: g.vy }, d);
+    g.vx = v.vx;
+    g.vy = v.vy;
     pumpDrag();
     restartEndTimer();
-  }, [connectedDevice, pumpDrag, endDrag, startDragDown]);
+  }, [connectedDevice, pumpDrag, endDrag, startDragDown, stopGlide]);
 
   /** Same backpressure as the drag, but intermediate scales are dropped — only the latest matters. */
   const pumpPinch = useCallback(() => {
