@@ -128,6 +128,24 @@ pub async fn set_muted(muted: bool, state: State<'_, AppState>) -> Result<(), St
 }
 
 #[tauri::command]
+pub fn system_natural_scroll() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("defaults")
+            .args(["read", "-g", "com.apple.swipescrolldirection"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim() == "1")
+            .unwrap_or(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
 pub async fn send_touch(
     action: String,
     x: f64,
