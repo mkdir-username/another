@@ -1,8 +1,11 @@
 use anyhow::{anyhow, Result};
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 
 use crate::adb;
@@ -12,6 +15,9 @@ use std::os::windows::process::CommandExt;
 
 const BOOT_TIMEOUT: Duration = Duration::from_secs(180);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const LOG_TAIL_LINES: usize = 20;
+
+type LogTail = Arc<Mutex<VecDeque<String>>>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Avd {
@@ -80,6 +86,48 @@ async fn running_emulators() -> Vec<(String, Option<String>)> {
         .collect()
 }
 
+/// A cold boot writes tens of kilobytes of GL and Vulkan chatter to the emulator's stdout. Nothing
+/// reads a pipe we do not drain, so the emulator stalls on `write` the moment the 64K buffer fills
+/// and its own hang detector aborts the process — the reader tasks below are what keep it alive.
+/// The tail they keep is the only account of what happened when it dies before Android is up.
+fn drain_output(child: &mut Child) -> LogTail {
+    let tail: LogTail = Arc::new(Mutex::new(VecDeque::with_capacity(LOG_TAIL_LINES)));
+    if let Some(stdout) = child.stdout.take() {
+        spawn_reader(stdout, "emulator", tail.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_reader(stderr, "emulator stderr", tail.clone());
+    }
+    tail
+}
+
+fn spawn_reader<R>(stream: R, label: &'static str, tail: LogTail)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stream).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            eprintln!("[{}] {}", label, line);
+            if let Ok(mut tail) = tail.lock() {
+                if tail.len() == LOG_TAIL_LINES {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
+        }
+    });
+}
+
+fn last_words(tail: &LogTail) -> String {
+    match tail.lock() {
+        Ok(tail) if !tail.is_empty() => {
+            format!(":\n{}", tail.iter().cloned().collect::<Vec<_>>().join("\n"))
+        }
+        _ => String::new(),
+    }
+}
+
 async fn booted(serial: &str) -> bool {
     adb::getprop(serial, "sys.boot_completed")
         .await
@@ -117,6 +165,7 @@ where
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| anyhow!("Failed to launch emulator: {}", e))?;
+    let log_tail = drain_output(&mut child);
     on_stage(BootStage::Spawned);
 
     let deadline = Instant::now() + BOOT_TIMEOUT;
@@ -124,7 +173,11 @@ where
 
     while Instant::now() < deadline {
         if let Ok(Some(status)) = child.try_wait() {
-            return Err(anyhow!("Emulator exited before booting ({})", status));
+            return Err(anyhow!(
+                "Emulator exited before booting ({}){}",
+                status,
+                last_words(&log_tail)
+            ));
         }
 
         if serial.is_none() {
@@ -148,8 +201,20 @@ where
         tokio::time::sleep(POLL_INTERVAL).await;
     }
 
-    let _ = child.kill().await;
-    Err(anyhow!("{} did not finish booting within {}s", name, BOOT_TIMEOUT.as_secs()))
+    // SIGKILL alone leaves the snapshot half-written, and the next launch of this AVD dies on
+    // "a snapshot operation is pending" — the console shutdown is what unwinds that state.
+    match serial.as_deref() {
+        Some(serial) => stop_owned(serial, &mut child).await?,
+        None => {
+            let _ = child.kill().await;
+        }
+    }
+    Err(anyhow!(
+        "{} did not finish booting within {}s{}",
+        name,
+        BOOT_TIMEOUT.as_secs(),
+        last_words(&log_tail)
+    ))
 }
 
 /// Shuts an instance down only while the process we started still owns the serial — a dead handle
