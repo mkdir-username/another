@@ -20,18 +20,23 @@ import {
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Device, ThemePreference } from "../types";
-import { getDeviceDisplayName, getDeviceNickname, setDeviceNickname } from "../types";
+import type { Avd, BootStage, Device, ThemePreference } from "../types";
+import { BOOT_STAGE_LABELS, getDeviceDisplayName, getDeviceNickname, setDeviceNickname } from "../types";
 import appIcon from "../assets/icon.png";
 
 interface WelcomeScreenProps {
   devices: Device[];
+  avds: Avd[];
+  startingAvd: string | null;
+  bootStage: BootStage | null;
   connectingSerial: string | null;
   themePref: ThemePreference;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
   onRefreshDevices: () => void;
   onConnectDevice: (device: Device) => void;
+  onStartAvd: (name: string, headless: boolean) => void;
+  onStopAvd: (serial: string) => void;
   showToast: (msg: string, type?: "error" | "info") => void;
 }
 
@@ -45,12 +50,17 @@ function isWifiDevice(serial: string) {
 
 export function WelcomeScreen({
   devices,
+  avds,
+  startingAvd,
+  bootStage,
   connectingSerial,
   themePref,
   onCycleTheme,
   onOpenSettings,
   onRefreshDevices,
   onConnectDevice,
+  onStartAvd,
+  onStopAvd,
   showToast,
 }: WelcomeScreenProps) {
   const [showWifiDialog, setShowWifiDialog] = useState(false);
@@ -60,7 +70,9 @@ export function WelcomeScreen({
   const [editingSerial, setEditingSerial] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; device: Device } | null>(null);
+  const [avdMenu, setAvdMenu] = useState<{ x: number; y: number; avd: Avd } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const avdMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -72,6 +84,22 @@ export function WelcomeScreen({
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!avdMenu) return;
+    const close = (e: MouseEvent) => {
+      if (avdMenuRef.current && !avdMenuRef.current.contains(e.target as Node)) {
+        setAvdMenu(null);
+      }
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [avdMenu]);
+
+  /** An AVD already mirrored through the device list above would be a duplicate row. */
+  const idleAvds = avds.filter(
+    (avd) => !avd.running_serial || !devices.some((d) => d.serial === avd.running_serial)
+  );
 
   const handleContextMenu = (e: React.MouseEvent, device: Device) => {
     e.preventDefault();
@@ -156,7 +184,11 @@ export function WelcomeScreen({
         {devices.length === 0 ? (
           <div className="text-center py-8 px-5 bg-surface border border-dashed border-border rounded-xl flex flex-col items-center">
             <SignalIcon className="size-8 text-text-3 mb-3 opacity-50" />
-            <p className="text-xs text-text-3 leading-relaxed">No devices detected.<br />Connect your Android via USB and enable USB debugging.</p>
+            <p className="text-xs text-text-3 leading-relaxed">
+              No devices detected.<br />
+              Connect your Android via USB and enable USB debugging
+              {idleAvds.length > 0 ? <>,<br />or start an emulator below.</> : "."}
+            </p>
           </div>
         ) : (
           devices.map((d) => (
@@ -223,7 +255,72 @@ export function WelcomeScreen({
             </div>
           ))
         )}
+
+        {idleAvds.length > 0 && (
+          <>
+            <div className="flex items-center justify-between mt-5 mb-1.5 px-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-3">
+                {idleAvds.length} emulator{idleAvds.length > 1 ? "s" : ""}
+              </span>
+            </div>
+            {idleAvds.map((avd) => {
+              const starting = startingAvd === avd.name;
+              return (
+                <div
+                  key={avd.name}
+                  className="bg-transparent border-none rounded-lg py-2.5 px-2 mb-0.5 cursor-pointer transition-all duration-200 flex items-center gap-2.5 hover:opacity-60"
+                  onClick={() => !startingAvd && !connectingSerial && onStartAvd(avd.name, true)}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setAvdMenu({ x: e.clientX, y: e.clientY, avd }); }}
+                >
+                  <div className="size-[30px] rounded-[7px] bg-surface-2 flex items-center justify-center text-text-2 shrink-0 [&_svg]:size-[15px]">
+                    <ComputerDesktopIcon />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold leading-tight truncate">{avd.name}</div>
+                    <div className="text-[10px] font-mono text-text-3 leading-tight truncate">
+                      {starting ? BOOT_STAGE_LABELS[bootStage ?? "spawned"] : avd.running_serial ?? "not running"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {starting
+                      ? <div className="size-4 border-2 border-border border-t-brand rounded-full animate-spin" />
+                      : <ChevronRightIcon className="size-3.5 text-text-3" />}
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
+
+      {avdMenu && (
+        <div
+          ref={avdMenuRef}
+          className="fixed z-100 min-w-40 bg-surface border border-border rounded-lg p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] animate-in fade-in duration-100"
+          style={{ top: avdMenu.y, left: avdMenu.x }}
+        >
+          <Button variant="ghost" className="block w-full h-auto justify-start py-1.5 px-2.5 text-xs font-normal text-foreground bg-transparent border-transparent rounded-[5px] shadow-none hover:bg-surface-hover" onClick={() => {
+            onStartAvd(avdMenu.avd.name, true);
+            setAvdMenu(null);
+          }}>
+            Start
+          </Button>
+          <Button variant="ghost" className="block w-full h-auto justify-start py-1.5 px-2.5 text-xs font-normal text-foreground bg-transparent border-transparent rounded-[5px] shadow-none hover:bg-surface-hover" onClick={() => {
+            onStartAvd(avdMenu.avd.name, false);
+            setAvdMenu(null);
+          }}>
+            Start with window
+          </Button>
+          {avdMenu.avd.running_serial && (
+            <Button variant="ghost" className="block w-full h-auto justify-start py-1.5 px-2.5 text-xs font-normal text-foreground bg-transparent border-transparent rounded-[5px] shadow-none hover:bg-surface-hover" onClick={() => {
+              onStopAvd(avdMenu.avd.running_serial!);
+              setAvdMenu(null);
+            }}>
+              Stop
+            </Button>
+          )}
+        </div>
+      )}
 
       {contextMenu && (
         <div

@@ -1,4 +1,4 @@
-use another_core::{adb, control, macro_engine, scrcpy};
+use another_core::{adb, control, emulator, macro_engine, scrcpy};
 use another_core::scrcpy::StreamSettings;
 use crate::audio::{self, AudioHandle};
 use crate::state::{AppState, ScrcpySession};
@@ -8,12 +8,61 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 #[tauri::command]
 pub async fn list_devices() -> Result<Vec<adb::Device>, String> {
     adb::list_devices().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_avds() -> Result<Vec<emulator::Avd>, String> {
+    emulator::list_avds().await.map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize)]
+pub struct EmulatorStatus {
+    pub name: String,
+    pub stage: emulator::BootStage,
+}
+
+#[tauri::command]
+pub async fn start_avd(
+    app: AppHandle,
+    name: String,
+    headless: bool,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let (serial, child) = {
+        let app = app.clone();
+        let label = name.clone();
+        emulator::start_avd(&name, headless, move |stage| {
+            let _ = app.emit(
+                "emulator-status",
+                EmulatorStatus { name: label.clone(), stage },
+            );
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+
+    state.started_emulators.lock().await.insert(serial.clone(), child);
+    Ok(serial)
+}
+
+#[tauri::command]
+pub async fn stop_avd(serial: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut started = state.started_emulators.lock().await;
+    match started.get_mut(&serial) {
+        Some(child) => {
+            emulator::stop_owned(&serial, child).await.map_err(|e| e.to_string())?;
+            started.remove(&serial);
+            Ok(())
+        }
+        // Started outside the app — not ours to shut down.
+        None => Err(format!("{} was not started by Another", serial)),
+    }
 }
 
 #[tauri::command]

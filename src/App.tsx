@@ -6,6 +6,7 @@ import { PRESETS, DEFAULT_PINNED_ACTIONS } from "./types";
 import { useTheme } from "./hooks/useTheme";
 import { useToasts } from "./hooks/useToasts";
 import { useDevices } from "./hooks/useDevices";
+import { useAvds } from "./hooks/useAvds";
 import { useConnection } from "./hooks/useConnection";
 import { useGestureSettings } from "./hooks/useGestureSettings";
 import { useAdaptiveBitrate } from "./hooks/useAdaptiveBitrate";
@@ -63,6 +64,7 @@ function App() {
   const { themePref, setThemePref, cycleTheme } = useTheme();
   const { toasts, showToast } = useToasts();
   const { devices, refreshDevices } = useDevices(showToast);
+  const { avds, startingName, stage, startAvd, stopAvd } = useAvds(showToast);
   const macro = useMacro({ showToast, onRecordingStopped: () => setShowMacros(true) });
   const updater = useUpdater(showToast);
 
@@ -142,6 +144,14 @@ function App() {
 
   scheduleReconnectRef.current = scheduleReconnect;
   connectedDeviceRef.current = connectedDevice;
+
+  /** A booted AVD is the device the user asked for, so mirroring starts without a second click. */
+  const handleStartAvd = useCallback(async (name: string, headless: boolean) => {
+    const serial = await startAvd(name, headless);
+    if (!serial) return;
+    await refreshDevices();
+    connectToDevice({ serial, model: name, state: "device", avd_name: name }, settingsRef.current);
+  }, [startAvd, refreshDevices, connectToDevice]);
 
   const adaptive = useAdaptiveBitrate({
     enabled: settings.adaptive,
@@ -254,12 +264,17 @@ function App() {
       ) : screen === "welcome" ? (
         <WelcomeScreen
           devices={devices}
+          avds={avds}
+          startingAvd={startingName}
+          bootStage={stage}
           connectingSerial={connectingSerial}
           themePref={themePref}
           onCycleTheme={cycleTheme}
           onOpenSettings={() => setShowSettings(true)}
           onRefreshDevices={refreshDevices}
           onConnectDevice={(d) => connectToDevice(d, settings)}
+          onStartAvd={handleStartAvd}
+          onStopAvd={stopAvd}
           showToast={showToast}
         />
       ) : connectedDevice ? (

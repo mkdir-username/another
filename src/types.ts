@@ -3,7 +3,26 @@ export interface Device {
   model: string;
   state: string;
   wifi_available?: boolean;
+  avd_name?: string | null;
 }
+
+export interface Avd {
+  name: string;
+  running_serial: string | null;
+}
+
+export type BootStage = "spawned" | "online" | "booted";
+
+export interface EmulatorStatus {
+  name: string;
+  stage: BootStage;
+}
+
+export const BOOT_STAGE_LABELS: Record<BootStage, string> = {
+  spawned: "Starting…",
+  online: "Booting…",
+  booted: "Ready",
+};
 
 export interface Toast {
   id: number;
@@ -64,8 +83,9 @@ export function setDeviceNickname(serial: string, name: string) {
   }
 }
 
+/** An emulator reports itself as `sdk_gphone64_arm64`; its AVD name is what the user actually picked. */
 export function getDeviceDisplayName(device: Device): string {
-  return getDeviceNickname(device.serial) || device.model;
+  return getDeviceNickname(device.serial) || device.avd_name || device.model;
 }
 
 export type ThemePreference = "light" | "dark" | "auto";

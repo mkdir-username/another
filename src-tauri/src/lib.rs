@@ -54,6 +54,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_devices,
+            commands::list_avds,
+            commands::start_avd,
+            commands::stop_avd,
             commands::connect_device,
             commands::disconnect_device,
             commands::send_touch,
@@ -88,10 +91,14 @@ pub fn run() {
             if let RunEvent::ExitRequested { .. } = &event {
                 let state = app.state::<AppState>();
                 let session = state.session.clone();
+                let started_emulators = state.started_emulators.clone();
                 tauri::async_runtime::block_on(async {
                     if let Some(s) = session.lock().await.take() {
                         s.shutdown.notify_one();
                         another_core::scrcpy::stop_server(&s.device_serial, 27183).await;
+                    }
+                    for (serial, mut child) in started_emulators.lock().await.drain() {
+                        let _ = another_core::emulator::stop_owned(&serial, &mut child).await;
                     }
                     another_core::adb::kill_server().await;
                 });

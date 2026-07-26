@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tokio::process::Command;
 
 #[cfg(windows)]
@@ -20,32 +21,43 @@ pub struct Device {
     pub serial: String,
     pub model: String,
     pub state: String,
+    pub avd_name: Option<String>,
 }
+
+pub const EMULATOR_SERIAL_PREFIX: &str = "emulator-";
 
 fn adb_binary_name() -> &'static str {
     if cfg!(windows) { "adb.exe" } else { "adb" }
 }
 
-fn adb_path() -> PathBuf {
-    let binary = adb_binary_name();
-
+/// Walks the same SDK layouts for every tool directory: `platform-tools` holds adb, `emulator` holds the emulator.
+pub fn sdk_tool_path(subdir: &str, binary: &str) -> Option<PathBuf> {
     if let Ok(home) = std::env::var("HOME") {
-        let sdk_adb = PathBuf::from(&home).join("Library/Android/sdk/platform-tools").join(binary);
-        if sdk_adb.exists() {
-            return sdk_adb;
+        let candidate = PathBuf::from(&home).join("Library/Android/sdk").join(subdir).join(binary);
+        if candidate.exists() {
+            return Some(candidate);
         }
     }
     if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        let sdk_adb = PathBuf::from(&local_app_data).join("Android/Sdk/platform-tools").join(binary);
-        if sdk_adb.exists() {
-            return sdk_adb;
+        let candidate = PathBuf::from(&local_app_data).join("Android/Sdk").join(subdir).join(binary);
+        if candidate.exists() {
+            return Some(candidate);
         }
     }
     if let Ok(android_home) = std::env::var("ANDROID_HOME") {
-        let sdk_adb = PathBuf::from(&android_home).join("platform-tools").join(binary);
-        if sdk_adb.exists() {
-            return sdk_adb;
+        let candidate = PathBuf::from(&android_home).join(subdir).join(binary);
+        if candidate.exists() {
+            return Some(candidate);
         }
+    }
+    None
+}
+
+fn adb_path() -> PathBuf {
+    let binary = adb_binary_name();
+
+    if let Some(sdk_adb) = sdk_tool_path("platform-tools", binary) {
+        return sdk_adb;
     }
     if let Some(dir) = RESOURCE_DIR.get() {
         let bundled = dir.join("resources").join(binary);
@@ -84,6 +96,38 @@ async fn run_adb_text(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&stdout).to_string())
 }
 
+/// An emulator keeps its AVD for as long as the serial lives, and `list_devices` runs every few
+/// seconds — without this cache each tick would spawn one `adb emu avd name` process per emulator.
+static AVD_NAMES: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn avd_cache() -> &'static Mutex<HashMap<String, String>> {
+    AVD_NAMES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_avd_name(serial: &str) -> Option<String> {
+    avd_cache().lock().ok()?.get(serial).cloned()
+}
+
+fn forget_absent_emulators(live: &[String]) {
+    if let Ok(mut cache) = avd_cache().lock() {
+        cache.retain(|serial, _| live.iter().any(|s| s == serial));
+    }
+}
+
+/// The emulator console answers `<name>\nOK`; querying it is the only reliable serial → AVD link,
+/// since port order says nothing about which AVD booted first.
+pub async fn avd_for_serial(serial: &str) -> Option<String> {
+    if let Some(name) = cached_avd_name(serial) {
+        return Some(name);
+    }
+    let output = run_adb_text(&["-s", serial, "emu", "avd", "name"]).await.ok()?;
+    let name = crate::emulator::parse_avd_name(&output)?;
+    if let Ok(mut cache) = avd_cache().lock() {
+        cache.insert(serial.to_string(), name.clone());
+    }
+    Some(name)
+}
+
 pub async fn list_devices() -> Result<Vec<Device>> {
     let output = run_adb_text(&["devices", "-l"]).await?;
     let mut devices = Vec::new();
@@ -109,9 +153,32 @@ pub async fn list_devices() -> Result<Vec<Device>> {
             serial,
             model,
             state,
+            avd_name: None,
         });
     }
+
+    forget_absent_emulators(&devices.iter().map(|d| d.serial.clone()).collect::<Vec<_>>());
+
+    for device in devices.iter_mut() {
+        if device.serial.starts_with(EMULATOR_SERIAL_PREFIX) && device.state == "device" {
+            device.avd_name = avd_for_serial(&device.serial).await;
+        }
+    }
+
     Ok(devices)
+}
+
+pub async fn getprop(serial: &str, prop: &str) -> Result<String> {
+    run_adb_text(&["-s", serial, "shell", "getprop", prop]).await
+}
+
+/// Emulator console shutdown — the graceful counterpart to killing the qemu process.
+pub async fn emu_kill(serial: &str) -> Result<()> {
+    run_adb(&["-s", serial, "emu", "kill"]).await?;
+    if let Ok(mut cache) = avd_cache().lock() {
+        cache.remove(serial);
+    }
+    Ok(())
 }
 
 pub async fn push_file(serial: &str, local: &str, remote: &str) -> Result<()> {
